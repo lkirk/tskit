@@ -2,41 +2,40 @@ name: tskit-dev
 channels:
   - bioconda
   - conda-forge
+  - defaults
 dependencies:
-  - autodocsumm==0.1.13 #Pinned as errors on 0.2.0
-  - biopython
+  - pytest
+  - meson[version='>=0.61.0']
+  - ninja
+  - sphinx-argparse
+  - h5py[version='>=2.6.0']
+  - flake8
   - black
   - breathe
-  - codecov
-  - coverage
-  - cunit
-  - dendropy
   - doxygen
-  - flake8
-  - h5py>=2.6.0
-  - jsonschema>=3.0.0
-  - kastore
-  - meson>=0.61.0
-  - msprime>=1.0.0
   - networkx
-  - ninja
-  - numpy
-  - packaging
-  - pip
-  - portion
-  - pre-commit
-  - pyparsing
-  - pysam
-  - pytest
+  - kastore
+  - coverage
   - pytest-cov
-  - pytest-xdist
-  - PyVCF
-  - sphinx==4.5.0
-  - sphinx-argparse
+  - dendropy
+  - biopython
   - sphinx-issues
+  - pre-commit
+  - portion
+  - pysam
+  - pyvcf
+  - msprime[version='>=1.0.0']
+  - sphinx==4.5.0
+  - autodocsumm==0.1.13
+  - pytest-xdist
   - sphinx_rtd_theme
-  - svgwrite>=1.1.10
-  - pip:
-    - newick
-    - xmlunittest
-    - msgpack>=1.0.0
+  - cunit
+  - packaging
+  - svgwrite[version='>=1.1.10']
+  - jsonschema[version='>=3.0.0']
+  - numpy
+  - pyparsing
+  - codecov
+  - pip
+  - gdb
+  - pkg-config

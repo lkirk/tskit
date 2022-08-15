@@ -48,43 +48,43 @@ if not meson.is_subproject()
         sources: ['tests/test_core.c'],
         link_with: [tskit_lib, test_lib],
         c_args: extra_c_args+['-DMESON_PROJECT_VERSION="@0@"'.format(meson.project_version())],
-        dependencies: kastore_dep,
+        dependencies: [cunit_dep, kastore_dep],
         )
     test('core', test_core)
 
     test_tables = executable('test_tables',
         sources: ['tests/test_tables.c'],
-        link_with: [tskit_lib, test_lib], c_args: extra_c_args, dependencies: kastore_dep)
+        link_with: [tskit_lib, test_lib], c_args: extra_c_args, dependencies: [cunit_dep, kastore_dep])
     test('tables', test_tables)
 
     test_trees = executable('test_trees',
         sources: ['tests/test_trees.c'],
-        link_with: [tskit_lib, test_lib], c_args: extra_c_args, dependencies: kastore_dep)
+        link_with: [tskit_lib, test_lib], c_args: extra_c_args, dependencies: [cunit_dep, kastore_dep])
     test('trees', test_trees)
 
     test_genotypes = executable('test_genotypes',
         sources: ['tests/test_genotypes.c'],
-        link_with: [tskit_lib, test_lib], c_args: extra_c_args, dependencies: kastore_dep)
+        link_with: [tskit_lib, test_lib], c_args: extra_c_args, dependencies: [cunit_dep, kastore_dep])
     test('genotypes', test_genotypes)
 
     test_convert = executable('test_convert',
         sources: ['tests/test_convert.c'],
-        link_with: [tskit_lib, test_lib], c_args: extra_c_args, dependencies: kastore_dep)
+        link_with: [tskit_lib, test_lib], c_args: extra_c_args, dependencies: [cunit_dep, kastore_dep])
     test('convert', test_convert)
 
     test_stats = executable('test_stats',
         sources: ['tests/test_stats.c'],
-        link_with: [tskit_lib, test_lib], c_args: extra_c_args, dependencies: kastore_dep)
+        link_with: [tskit_lib, test_lib], c_args: extra_c_args, dependencies: [cunit_dep, kastore_dep])
     test('stats', test_stats)
 
     test_haplotype_matching = executable('test_haplotype_matching',
         sources: ['tests/test_haplotype_matching.c'],
-        link_with: [tskit_lib, test_lib], c_args: extra_c_args, dependencies: kastore_dep)
+        link_with: [tskit_lib, test_lib], c_args: extra_c_args, dependencies: [cunit_dep, kastore_dep])
     test('haplotype_matching', test_haplotype_matching)
 
     test_file_format = executable('test_file_format',
         sources: ['tests/test_file_format.c'],
-        link_with: [tskit_lib, test_lib], c_args: extra_c_args, dependencies: kastore_dep)
+        link_with: [tskit_lib, test_lib], c_args: extra_c_args, dependencies: [cunit_dep, kastore_dep])
     test('file_format', test_file_format)
 
     test_minimal_cpp = executable('test_minimal_cpp',
