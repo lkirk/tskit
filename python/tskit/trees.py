@@ -3800,10 +3800,16 @@ class SimpleContainerSequence:
     Simple wrapper to allow arrays of SimpleContainers (e.g. edges, nodes) that have a
     function allowing access by index (e.g. ts.edge(i), ts.node(i)) to be treated as a
     python sequence, allowing forward and reverse iteration.
+
+    To generate a sequence of items in a different order, the ``order`` parameter allows
+    an array of indexes to be passed in, such as returned from np.argsort or np.lexsort.
     """
 
-    def __init__(self, getter, length):
-        self.getter = getter
+    def __init__(self, getter, length, order=None):
+        if order is None:
+            self.getter = getter
+        else:
+            self.getter = lambda index: getter(order[index])
         self.length = length
 
     def __len__(self):
@@ -4463,15 +4469,31 @@ class TreeSequence:
         """
         return SimpleContainerSequence(self.individual, self.num_individuals)
 
-    def nodes(self):
+    def nodes(self, *, order=None):
         """
         Returns an iterable sequence of all the :ref:`nodes <sec_node_table_definition>`
         in this tree sequence.
 
+        .. note:: Although node ids are commonly ordered by node time, this is not a
+            formal tree sequence requirement. If you wish to iterate over nodes in
+            time order, you should therefore use ``order="timeasc"`` (and wrap the
+            resulting sequence in the standard Python :func:`python:reversed` function
+            if you wish to iterate over older nodes before younger ones)
+
+        :param str order: The order in which the nodes should be returned: must be
+            one of "id" (default) or "timeasc" (ascending order of time, then by
+            ascending node id, matching the first two ordering requirements of
+            parent nodes in a :meth:`sorted <TableCollection.sort>` edge table).
         :return: An iterable sequence of all nodes.
         :rtype: Sequence(:class:`.Node`)
         """
-        return SimpleContainerSequence(self.node, self.num_nodes)
+        order = "id" if order is None else order
+        if order not in ["id", "timeasc"]:
+            raise ValueError('order must be "id" or "timeasc"')
+        odr = None
+        if order == "timeasc":
+            odr = np.lexsort((np.arange(self.num_nodes), self.nodes_time))
+        return SimpleContainerSequence(self.node, self.num_nodes, order=odr)
 
     def edges(self):
         """
@@ -5203,7 +5225,12 @@ class TreeSequence:
                 yield variant
 
     def genotype_matrix(
-        self, *, isolated_as_missing=None, alleles=None, impute_missing_data=None
+        self,
+        *,
+        samples=None,
+        isolated_as_missing=None,
+        alleles=None,
+        impute_missing_data=None,
     ):
         """
         Returns an :math:`m \\times n` numpy array of the genotypes in this
@@ -5227,6 +5254,8 @@ class TreeSequence:
             all genotypes are not needed at once, it is usually better to
             access them sequentially using the :meth:`.variants` iterator.
 
+        :param array_like samples: An array of node IDs for which to generate
+            genotypes, or None for all sample nodes. Default: None.
         :param bool isolated_as_missing: If True, the genotype value assigned to
             missing samples (i.e., isolated samples without mutations) is
             :data:`.MISSING_DATA` (-1). If False, missing samples will be
@@ -5256,9 +5285,21 @@ class TreeSequence:
         if isolated_as_missing is None:
             isolated_as_missing = not impute_missing_data
 
-        return self._ll_tree_sequence.get_genotype_matrix(
-            isolated_as_missing=isolated_as_missing, alleles=alleles
+        variant = tskit.Variant(
+            self,
+            samples=samples,
+            isolated_as_missing=isolated_as_missing,
+            alleles=alleles,
         )
+
+        num_samples = self.num_samples if samples is None else len(samples)
+        ret = np.zeros(shape=(self.num_sites, num_samples), dtype=np.int32)
+
+        for site_id in range(self.num_sites):
+            variant.decode(site_id)
+            ret[site_id, :] = variant.genotypes
+
+        return ret
 
     def alignments(
         self,
@@ -6694,12 +6735,12 @@ class TreeSequence:
         of the retained nodes.  Note that this does *not* retain
         the ancestry of these nodes - for that, see :meth:`.simplify`.
 
-        This has the side effect of reordering the nodes, individuals, and
-        populations in the tree sequence: the nodes in the new tree sequence
-        will be in the order provided in ``nodes``, and both individuals and
-        populations will be ordered by the earliest retained node that refers
-        to them. (However, ``reorder_populations`` may be set to False
-        to keep the population table unchanged.)
+        This has the side effect that it may change the order of the nodes,
+        individuals, populations, and migrations in the tree sequence: the nodes
+        in the new tree sequence will be in the order provided in ``nodes``, and
+        both individuals and populations will be ordered by the earliest retained
+        node that refers to them. (However, ``reorder_populations`` may be set to
+        False to keep the population table unchanged.)
 
         By default, the method removes all individuals and populations not
         referenced by any nodes, and all sites not referenced by any mutations.
@@ -6734,6 +6775,7 @@ class TreeSequence:
             reorder_populations=reorder_populations,
             remove_unreferenced=remove_unreferenced,
         )
+        tables.sort()
         return tables.tree_sequence()
 
     def union(

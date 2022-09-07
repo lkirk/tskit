@@ -2,6 +2,20 @@
 [0.5.3] - 2022-XX-XX
 --------------------
 
+**Fixes**
+
+ - ``ts.subset()`` produces valid tree sequences even if nodes are shuffled
+   out of time order (:user:`hyanwong`, :pr:`2479`, :issue:`2473`)
+
+**Features**
+
+ - The ``ts.nodes`` method now takes an ``order`` parameter so that nodes
+   can be visited in time order (:user:`hyanwong`, :pr:`2471`, :issue:`2370`)
+
+ - Add ``samples`` argument to ``TreeSequence.genotype_matrix``.
+   Default is ``None``, where all the sample nodes are selected.
+   (:user:`szhan`, :pr:`2493`, :issue:`678`)
+
 **Changes**
 
  - Single statistics computed with ``TreeSequence.general_stat`` are now
@@ -171,6 +185,10 @@
 - Add ``Tree.edge_array`` and ``Tree.edge``. Returns the edge id of the edge encoding
   the relationship of each node with its parent.
   (:user:`GertjanBisschop`, :issue:`2361`, :pr:`2357`)
+
+- Add ``position`` argument to ``TreeSequence.site``. Returns a ``Site`` object if there is
+  one at the specified position. If not, it raises ``ValueError``.
+  (:user:`szhan`, :issue:`2234`, :pr:`2235`)
 
 **Breaking Changes**
 

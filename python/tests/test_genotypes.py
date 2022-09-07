@@ -51,7 +51,7 @@ from tskit.genotypes import allele_remap
 @tests.cached_example
 def get_example_discrete_genome_tree_sequences():
     ret = []
-    for ts in get_example_tree_sequences():
+    for ts in get_example_tree_sequences(pytest_params=False):
         if ts.discrete_genome:
             snps = all(len(site.ancestral_state) == 1 for site in ts.sites()) and all(
                 len(mut.derived_state) == 1 for mut in ts.mutations()
@@ -294,12 +294,17 @@ class TestVariantGenerator:
         variants = list(ts.variants())
         assert len(variants) == 0
 
-    def test_genotype_matrix(self):
+    @pytest.mark.parametrize("samples", [None, [1, 2], [2, 4], []])
+    def test_genotype_matrix(self, samples):
         ts = self.get_tree_sequence()
-        G = np.empty((ts.num_sites, ts.num_samples), dtype=np.int32)
-        for v in ts.variants():
+        num_samples = ts.num_samples if samples is None else len(samples)
+        G = np.empty((ts.num_sites, num_samples), dtype=np.int32)
+        for v in ts.variants(samples=samples):
             G[v.index, :] = v.genotypes
-        G2 = ts.genotype_matrix()
+        if samples is None:
+            G2 = ts.genotype_matrix()
+        else:
+            G2 = ts.genotype_matrix(samples=samples)
         assert np.array_equal(G, G2)
         assert G2.dtype == np.int32
 
