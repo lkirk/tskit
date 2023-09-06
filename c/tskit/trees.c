@@ -2446,15 +2446,15 @@ out:
 static int
 tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
     const tsk_bit_array_t *sample_sets, tsk_size_t result_dim, general_stat_func_t *f,
-    sample_count_stat_params_t *f_params, norm_func_t *norm_f,
-    const double *TSK_UNUSED(left_window), const double *TSK_UNUSED(right_window),
-    tsk_flags_t options, tsk_size_t *result_size, double **result)
+    sample_count_stat_params_t *f_params, norm_func_t *norm_f, tsk_size_t num_site_rows,
+    const tsk_id_t *row_sites, tsk_size_t num_site_cols, const tsk_id_t *col_sites,
+    tsk_flags_t options, double *result)
 {
     int ret = 0;
     tsk_bit_array_t allele_samples;
     tsk_bit_array_t site_a_state, site_b_state;
     tsk_size_t inner, result_offset, inner_offset, a_offset, b_offset;
-    tsk_size_t site_a, site_b;
+    tsk_size_t row_site, col_site, site_a, site_b;
     bool polarised = false;
     const tsk_size_t num_sites = self->tables->sites.num_rows;
     const tsk_size_t num_samples = self->num_samples;
@@ -2478,10 +2478,6 @@ tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
         goto out;
     }
 
-    // Number of pairs w/ replacement (sites)
-    *result_size = (num_sites * (1 + num_sites)) / 2U;
-    *result = tsk_calloc(*result_size * result_dim, sizeof(**result));
-
     if (result == NULL) {
         ret = TSK_ERR_NO_MEMORY;
         goto out;
@@ -2497,15 +2493,17 @@ tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
     inner_offset = 0;
     result_offset = 0;
     // TODO: implement windows!
-    for (site_a = 0; site_a < num_sites; site_a++) {
+    for (row_site = 0; row_site < num_site_rows; row_site++) {
+        site_a = (tsk_size_t) row_sites[row_site];
         b_offset = inner_offset;
-        for (site_b = inner; site_b < num_sites; site_b++) {
+        for (col_site = inner; col_site < num_site_cols; col_site++) {
+            site_b = (tsk_size_t) col_sites[col_site];
             tsk_bit_array_get_row(&allele_samples, a_offset, &site_a_state);
             tsk_bit_array_get_row(&allele_samples, b_offset, &site_b_state);
             ret = compute_general_two_site_stat_result(&site_a_state, &site_b_state,
                 num_alleles[site_a], num_alleles[site_b], num_samples, state_dim,
                 sample_sets, result_dim, f, f_params, norm_f, polarised,
-                &((*result)[result_offset]));
+                &(result[result_offset]));
             if (ret != 0) {
                 goto out;
             }
@@ -2562,10 +2560,8 @@ static int
 tsk_treeseq_two_locus_count_stat(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
     tsk_size_t result_dim, const tsk_id_t *set_indexes, general_stat_func_t *f,
-    norm_func_t *norm_f, tsk_size_t TSK_UNUSED(num_left_windows),
-    const double *left_windows, tsk_size_t TSK_UNUSED(num_right_windows),
-    const double *right_windows, tsk_flags_t options, tsk_size_t *result_size,
-    double **result)
+    norm_func_t *norm_f, tsk_size_t out_rows, const tsk_id_t *row_sites,
+    tsk_size_t out_cols, const tsk_id_t *col_sites, tsk_flags_t options, double *result)
 {
     // TODO: generalize this function if we ever decide to do weighted two_locus stats.
     //       We only implement count stats and therefore we don't handle weights.
@@ -2601,8 +2597,6 @@ tsk_treeseq_two_locus_count_stat(const tsk_treeseq_t *self, tsk_size_t num_sampl
     //     goto out;
     // }
 
-    tsk_bug_assert(left_windows == NULL && right_windows == NULL);
-
     ret = tsk_treeseq_check_sample_sets(
         self, num_sample_sets, sample_set_sizes, sample_sets);
     if (ret != 0) {
@@ -2615,9 +2609,10 @@ tsk_treeseq_two_locus_count_stat(const tsk_treeseq_t *self, tsk_size_t num_sampl
     }
 
     if (stat_site) {
+        // TODO: site validation
         ret = tsk_treeseq_two_site_count_stat(self, state_dim, &sample_sets_bits,
-            result_dim, f, &f_params, norm_f, left_windows, right_windows, options,
-            result_size, result);
+            result_dim, f, &f_params, norm_f, out_rows, row_sites, out_cols, col_sites,
+            options, result);
     } else {
         ret = TSK_ERR_UNSUPPORTED_STAT_MODE;
     }
@@ -3451,16 +3446,14 @@ D_summary_func(tsk_size_t state_dim, const double *state,
 
 int
 tsk_treeseq_D(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
-    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
-    tsk_size_t num_left_windows, const double *left_windows,
-    tsk_size_t num_right_windows, const double *right_windows, tsk_flags_t options,
-    tsk_size_t *result_size, double **result)
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, tsk_size_t num_cols, const tsk_id_t *col_sites,
+    tsk_flags_t options, double *result)
 {
     options |= TSK_STAT_POLARISED; // TODO: allow user to pick?
     return tsk_treeseq_two_locus_count_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_sample_sets, NULL, D_summary_func, norm_total_weighted,
-        num_left_windows, left_windows, num_right_windows, right_windows, options,
-        result_size, result);
+        num_rows, row_sites, num_cols, col_sites, options, result);
 }
 
 static int
@@ -3490,15 +3483,13 @@ D2_summary_func(tsk_size_t state_dim, const double *state,
 
 int
 tsk_treeseq_D2(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
-    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
-    tsk_size_t num_left_windows, const double *left_windows,
-    tsk_size_t num_right_windows, const double *right_windows, tsk_flags_t options,
-    tsk_size_t *result_size, double **result)
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, tsk_size_t num_cols, const tsk_id_t *col_sites,
+    tsk_flags_t options, double *result)
 {
     return tsk_treeseq_two_locus_count_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_sample_sets, NULL, D2_summary_func, norm_total_weighted,
-        num_left_windows, left_windows, num_right_windows, right_windows, options,
-        result_size, result);
+        num_rows, row_sites, num_cols, col_sites, options, result);
 }
 
 static int
@@ -3534,15 +3525,13 @@ r2_summary_func(tsk_size_t state_dim, const double *state,
 
 int
 tsk_treeseq_r2(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
-    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
-    tsk_size_t num_left_windows, const double *left_windows,
-    tsk_size_t num_right_windows, const double *right_windows, tsk_flags_t options,
-    tsk_size_t *result_size, double **result)
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, tsk_size_t num_cols, const tsk_id_t *col_sites,
+    tsk_flags_t options, double *result)
 {
     return tsk_treeseq_two_locus_count_stat(self, num_sample_sets, sample_set_sizes,
-        sample_sets, num_sample_sets, NULL, r2_summary_func, norm_hap_weighted,
-        num_left_windows, left_windows, num_right_windows, right_windows, options,
-        result_size, result);
+        sample_sets, num_sample_sets, NULL, r2_summary_func, norm_hap_weighted, num_rows,
+        row_sites, num_cols, col_sites, options, result);
 }
 
 static int
@@ -3576,16 +3565,14 @@ D_prime_summary_func(tsk_size_t state_dim, const double *state,
 
 int
 tsk_treeseq_D_prime(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
-    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
-    tsk_size_t num_left_windows, const double *left_windows,
-    tsk_size_t num_right_windows, const double *right_windows, tsk_flags_t options,
-    tsk_size_t *result_size, double **result)
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, tsk_size_t num_cols, const tsk_id_t *col_sites,
+    tsk_flags_t options, double *result)
 {
     options |= TSK_STAT_POLARISED; // TODO: allow user to pick?
     return tsk_treeseq_two_locus_count_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_sample_sets, NULL, D_prime_summary_func, norm_hap_weighted,
-        num_left_windows, left_windows, num_right_windows, right_windows, options,
-        result_size, result);
+        num_rows, row_sites, num_cols, col_sites, options, result);
 }
 
 static int
@@ -3621,16 +3608,14 @@ r_summary_func(tsk_size_t state_dim, const double *state,
 
 int
 tsk_treeseq_r(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
-    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
-    tsk_size_t num_left_windows, const double *left_windows,
-    tsk_size_t num_right_windows, const double *right_windows, tsk_flags_t options,
-    tsk_size_t *result_size, double **result)
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, tsk_size_t num_cols, const tsk_id_t *col_sites,
+    tsk_flags_t options, double *result)
 {
     options |= TSK_STAT_POLARISED; // TODO: allow user to pick?
     return tsk_treeseq_two_locus_count_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_sample_sets, NULL, r_summary_func, norm_total_weighted,
-        num_left_windows, left_windows, num_right_windows, right_windows, options,
-        result_size, result);
+        num_rows, row_sites, num_cols, col_sites, options, result);
 }
 
 static int
@@ -3661,15 +3646,13 @@ Dz_summary_func(tsk_size_t state_dim, const double *state,
 
 int
 tsk_treeseq_Dz(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
-    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
-    tsk_size_t num_left_windows, const double *left_windows,
-    tsk_size_t num_right_windows, const double *right_windows, tsk_flags_t options,
-    tsk_size_t *result_size, double **result)
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, tsk_size_t num_cols, const tsk_id_t *col_sites,
+    tsk_flags_t options, double *result)
 {
     return tsk_treeseq_two_locus_count_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_sample_sets, NULL, Dz_summary_func, norm_total_weighted,
-        num_left_windows, left_windows, num_right_windows, right_windows, options,
-        result_size, result);
+        num_rows, row_sites, num_cols, col_sites, options, result);
 }
 
 static int
@@ -3697,15 +3680,13 @@ pi2_summary_func(tsk_size_t state_dim, const double *state,
 
 int
 tsk_treeseq_pi2(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
-    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
-    tsk_size_t num_left_windows, const double *left_windows,
-    tsk_size_t num_right_windows, const double *right_windows, tsk_flags_t options,
-    tsk_size_t *result_size, double **result)
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, tsk_size_t num_cols, const tsk_id_t *col_sites,
+    tsk_flags_t options, double *result)
 {
     return tsk_treeseq_two_locus_count_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_sample_sets, NULL, pi2_summary_func, norm_total_weighted,
-        num_left_windows, left_windows, num_right_windows, right_windows, options,
-        result_size, result);
+        num_rows, row_sites, num_cols, col_sites, options, result);
 }
 
 /***********************************

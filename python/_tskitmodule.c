@@ -9811,6 +9811,130 @@ out:
     return ret;
 }
 
+static PyArrayObject *
+TreeSequence_allocate_results_matrix(TreeSequence *self, tsk_flags_t mode,
+    tsk_size_t num_sites_left, tsk_size_t num_sites_right, tsk_size_t output_dim)
+{
+    PyArrayObject *result_array = NULL;
+    npy_intp result_shape[3];
+
+    result_shape[0] = num_sites_left;
+    result_shape[1] = num_sites_right;
+    result_shape[2] = output_dim;
+    result_array = (PyArrayObject *) PyArray_SimpleNew(2, result_shape, NPY_FLOAT64);
+    if (result_array == NULL) {
+        goto out;
+    }
+out:
+    return result_array;
+}
+
+static int
+parse_sites(PyObject *sites, PyArrayObject **ret_sites_array,
+    tsk_size_t *ret_num_sites_left, tsk_size_t *ret_num_sites_right)
+{
+    int ret = -1;
+    tsk_size_t num_sites_left = 0;
+    tsk_size_t num_sites_right = 0;
+    PyArrayObject *sites_array = NULL;
+    npy_intp *shape;
+
+    sites_array
+        = (PyArrayObject *) PyArray_FROMANY(sites, NPY_INT64, 2, 2, NPY_ARRAY_IN_ARRAY);
+    if (sites_array == NULL) {
+        goto out;
+    }
+    shape = PyArray_DIMS(sites_array);
+    if (shape[0] < 1 || shape[1] < 1) {
+        PyErr_SetString(PyExc_ValueError,
+            "Sites array must have at least 1 left and one right element");
+        goto out;
+    }
+    num_sites_left = shape[0];
+    num_sites_right = shape[1];
+
+    ret = 0;
+out:
+    *ret_sites_array = sites_array;
+    *ret_num_sites_left = num_sites_left;
+    *ret_num_sites_right = num_sites_right;
+    return ret;
+}
+
+static PyObject *
+TreeSequence_two_locus_count_stat(TreeSequence *self, PyObject *args, PyObject *kwds,
+    two_locus_count_stat_method *method)
+{
+    PyObject *ret = NULL;
+    static char *kwlist[] = { "sample_set_sizes", "sample_sets", "sites", "mode", NULL };
+    PyObject *sample_set_sizes = NULL;
+    PyObject *sample_sets = NULL;
+    PyObject *sites = NULL;
+    PyArrayObject *sample_set_sizes_array = NULL;
+    PyArrayObject *sample_sets_array = NULL;
+    PyArrayObject *sites_array = NULL;
+    PyArrayObject *result_matrix = NULL;
+    char *mode = NULL;
+    tsk_size_t num_sites_left, num_sites_right, num_sample_sets, out_dim;
+    tsk_flags_t options = 0;
+    int err;
+
+    // num_sites_left = tsk_treeseq_get_num_sites(self->tree_sequence);
+    // num_sites_right = tsk_treeseq_get_num_sites(self->tree_sequence);
+
+    if (TreeSequence_check_state(self) != 0) {
+        goto out;
+    }
+    /* static char *kwlist[] = { "weights", "summary_func", "output_dim", "windows",
+     * "mode", */
+    /*     "polarised", "span_normalise", NULL }; */
+    /* OOIO|sii */
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOO|s", kwlist, &sample_set_sizes,
+            &sample_sets, &sites, &mode)) {
+        goto out;
+    }
+    if (parse_stats_mode(mode, &options) != 0) {
+        goto out;
+    }
+    if (parse_sample_sets(sample_set_sizes, &sample_set_sizes_array, sample_sets,
+            &sample_sets_array, &num_sample_sets)
+        != 0) {
+        goto out;
+    }
+    if (parse_sites(sites, &sites_array, &num_sites_left, &num_sites_right) != 0) {
+        goto out;
+    }
+    out_dim = num_sites_left * num_sites_right;
+
+    result_matrix = TreeSequence_allocate_results_matrix(
+        self, options, num_sites_left, num_sites_right, out_dim);
+    if (result_matrix == NULL) {
+        goto out;
+    }
+    err = method(self->tree_sequence, num_sample_sets,
+        PyArray_DATA(sample_set_sizes_array), PyArray_DATA(sample_sets_array),
+        num_sites_left, PyArray_GETPTR2(sites_array, 0, 0), num_sites_right,
+        PyArray_GETPTR2(sites_array, 1, 0), options, PyArray_DATA(result_matrix));
+    if (err != 0) {
+        handle_library_error(err);
+        goto out;
+    }
+    ret = (PyObject *) result_matrix;
+    result_matrix = NULL;
+out:
+    Py_XDECREF(sample_set_sizes_array);
+    Py_XDECREF(sample_sets_array);
+    Py_XDECREF(sites_array);
+    Py_XDECREF(result_matrix);
+    return ret;
+}
+
+static PyObject *
+TreeSequence_r2(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_two_locus_count_stat(self, args, kwds, tsk_treeseq_r2);
+}
+
 static PyObject *
 TreeSequence_get_num_mutations(TreeSequence *self)
 {
@@ -10535,6 +10659,10 @@ static PyMethodDef TreeSequence_methods[] = {
         .ml_meth = (PyCFunction) TreeSequence_has_reference_sequence,
         .ml_flags = METH_NOARGS,
         .ml_doc = "Returns True if the TreeSequence has a reference sequence." },
+    { .ml_name = "r2",
+        .ml_meth = (PyCFunction) TreeSequence_r2,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes r2 statistic." },
     { NULL } /* Sentinel */
 };
 
