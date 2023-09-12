@@ -7511,6 +7511,54 @@ class TreeSequence:
                 stat = stat[()]
         return stat
 
+    def __two_locus_sample_set_stat(
+            self,
+            ll_method,
+            sample_sets,
+            sites=None,
+            mode=None,
+    ):
+        if sample_sets is None:
+            sample_sets = self.samples()
+        if sites is None:
+            # TODO: what dtype should this be? Depends on the size of tsk_id_t
+            sites = np.arange(self.tables.sites.num_rows, dtype=np.int32)
+            sites = np.vstack([sites, sites])
+
+        # First try to convert to a 1D numpy array. If it is, then we strip off
+        # the corresponding dimension from the output.
+        drop_dimension = False
+        try:
+            sample_sets = np.array(sample_sets, dtype=np.uint64)
+        except ValueError:
+            pass
+        else:
+            # If we've successfully converted sample_sets to a 1D numpy array
+            # of integers then drop the dimension
+            if len(sample_sets.shape) == 1:
+                sample_sets = [sample_sets]
+                drop_dimension = True
+
+        sample_set_sizes = np.array(
+            [len(sample_set) for sample_set in sample_sets], dtype=np.uint32
+        )
+        if np.any(sample_set_sizes == 0):
+            raise ValueError("Sample sets must contain at least one element")
+
+        flattened = util.safe_np_int_cast(np.hstack(sample_sets), np.int32)
+
+        stat = ll_method(
+            sample_set_sizes,
+            flattened,
+            sites,
+            mode
+        )
+
+        if drop_dimension:
+            stat = stat.reshape(stat.shape[0], stat.shape[2])
+
+        return stat
+
     def __k_way_sample_set_stat(
         self,
         ll_method,
@@ -9131,6 +9179,16 @@ class TreeSequence:
             unknown = tskit.is_unknown_time(mutations_time)
             mutations_time[unknown] = self.nodes_time[self.mutations_node[unknown]]
             return mutations_time
+
+    def r2(
+        self, sample_sets=None, sites=None, mode="site"
+    ):
+        return self.__two_locus_sample_set_stat(
+            self._ll_tree_sequence.r2,
+            sample_sets,
+            sites=sites,
+            mode=mode,
+        )
 
     ############################################
     #

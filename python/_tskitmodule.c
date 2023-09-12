@@ -9811,53 +9811,48 @@ out:
     return ret;
 }
 
-static PyArrayObject *
-TreeSequence_allocate_results_matrix(TreeSequence *self, tsk_flags_t mode,
-    tsk_size_t num_sites_left, tsk_size_t num_sites_right, tsk_size_t output_dim)
-{
-    PyArrayObject *result_array = NULL;
-    npy_intp result_shape[3];
-
-    result_shape[0] = num_sites_left;
-    result_shape[1] = num_sites_right;
-    result_shape[2] = output_dim;
-    result_array = (PyArrayObject *) PyArray_SimpleNew(2, result_shape, NPY_FLOAT64);
-    if (result_array == NULL) {
-        goto out;
-    }
-out:
-    return result_array;
-}
-
 static int
-parse_sites(PyObject *sites, PyArrayObject **ret_sites_array,
-    tsk_size_t *ret_num_sites_left, tsk_size_t *ret_num_sites_right)
+parse_sites(PyObject *sites, PyArrayObject **ret_row_sites,
+    PyArrayObject **ret_col_sites, tsk_size_t *ret_num_sites_row,
+    tsk_size_t *ret_num_sites_col)
 {
     int ret = -1;
-    tsk_size_t num_sites_left = 0;
-    tsk_size_t num_sites_right = 0;
-    PyArrayObject *sites_array = NULL;
-    npy_intp *shape;
+    tsk_size_t num_sites_row = 0;
+    tsk_size_t num_sites_col = 0;
+    PyArrayObject *row_sites = NULL;
+    PyArrayObject *col_sites = NULL;
+    PyObject *list;
 
-    sites_array
-        = (PyArrayObject *) PyArray_FROMANY(sites, NPY_INT64, 2, 2, NPY_ARRAY_IN_ARRAY);
-    if (sites_array == NULL) {
+    Py_ssize_t sites_len;
+    if ((sites_len = PyList_GET_SIZE(sites)) != 2) {
+        PyErr_SetString(PyExc_ValueError, "Expected a list of exactly length two.");
         goto out;
     }
-    shape = PyArray_DIMS(sites_array);
-    if (shape[0] < 1 || shape[1] < 1) {
-        PyErr_SetString(PyExc_ValueError,
-            "Sites array must have at least 1 left and one right element");
-        goto out;
-    }
-    num_sites_left = shape[0];
-    num_sites_right = shape[1];
+
+    list = PyList_GET_ITEM(sites, 0);
+    row_sites
+#ifdef _TSK_BIG_TABLES
+        = (PyArrayObject *) PyArray_FROMANY(list, NPY_INT64, 1, 1, NPY_ARRAY_IN_ARRAY);
+#else
+        = (PyArrayObject *) PyArray_FROMANY(list, NPY_INT32, 1, 1, NPY_ARRAY_IN_ARRAY);
+#endif
+    num_sites_row = PyList_Size(list);
+
+    list = PyList_GET_ITEM(sites, 1);
+    col_sites
+#ifdef _TSK_BIG_TABLES
+        = (PyArrayObject *) PyArray_FROMANY(list, NPY_INT64, 1, 1, NPY_ARRAY_IN_ARRAY);
+#else
+        = (PyArrayObject *) PyArray_FROMANY(list, NPY_INT32, 1, 1, NPY_ARRAY_IN_ARRAY);
+#endif
+    num_sites_col = PyList_Size(list);
 
     ret = 0;
 out:
-    *ret_sites_array = sites_array;
-    *ret_num_sites_left = num_sites_left;
-    *ret_num_sites_right = num_sites_right;
+    *ret_row_sites = row_sites;
+    *ret_col_sites = col_sites;
+    *ret_num_sites_row = num_sites_row;
+    *ret_num_sites_col = num_sites_col;
     return ret;
 }
 
@@ -9872,23 +9867,18 @@ TreeSequence_two_locus_count_stat(TreeSequence *self, PyObject *args, PyObject *
     PyObject *sites = NULL;
     PyArrayObject *sample_set_sizes_array = NULL;
     PyArrayObject *sample_sets_array = NULL;
-    PyArrayObject *sites_array = NULL;
+    PyArrayObject *row_sites = NULL;
+    PyArrayObject *col_sites = NULL;
     PyArrayObject *result_matrix = NULL;
+    npy_intp result_shape[3];
     char *mode = NULL;
-    tsk_size_t num_sites_left, num_sites_right, num_sample_sets, out_dim;
+    tsk_size_t num_rows, num_cols, num_sample_sets;
     tsk_flags_t options = 0;
     int err;
-
-    // num_sites_left = tsk_treeseq_get_num_sites(self->tree_sequence);
-    // num_sites_right = tsk_treeseq_get_num_sites(self->tree_sequence);
 
     if (TreeSequence_check_state(self) != 0) {
         goto out;
     }
-    /* static char *kwlist[] = { "weights", "summary_func", "output_dim", "windows",
-     * "mode", */
-    /*     "polarised", "span_normalise", NULL }; */
-    /* OOIO|sii */
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOO|s", kwlist, &sample_set_sizes,
             &sample_sets, &sites, &mode)) {
         goto out;
@@ -9901,20 +9891,22 @@ TreeSequence_two_locus_count_stat(TreeSequence *self, PyObject *args, PyObject *
         != 0) {
         goto out;
     }
-    if (parse_sites(sites, &sites_array, &num_sites_left, &num_sites_right) != 0) {
+    if (parse_sites(sites, &row_sites, &col_sites, &num_rows, &num_cols) != 0) {
         goto out;
     }
-    out_dim = num_sites_left * num_sites_right;
 
-    result_matrix = TreeSequence_allocate_results_matrix(
-        self, options, num_sites_left, num_sites_right, out_dim);
+    result_shape[0] = num_rows;
+    result_shape[1] = num_sample_sets;
+    result_shape[2] = num_cols;
+    result_matrix = (PyArrayObject *) PyArray_ZEROS(3, result_shape, NPY_FLOAT64, 0);
     if (result_matrix == NULL) {
         goto out;
     }
+
     err = method(self->tree_sequence, num_sample_sets,
-        PyArray_DATA(sample_set_sizes_array), PyArray_DATA(sample_sets_array),
-        num_sites_left, PyArray_GETPTR2(sites_array, 0, 0), num_sites_right,
-        PyArray_GETPTR2(sites_array, 1, 0), options, PyArray_DATA(result_matrix));
+        PyArray_DATA(sample_set_sizes_array), PyArray_DATA(sample_sets_array), num_rows,
+        PyArray_DATA(row_sites), num_cols, PyArray_DATA(col_sites), options,
+        PyArray_DATA(result_matrix));
     if (err != 0) {
         handle_library_error(err);
         goto out;
@@ -9924,7 +9916,8 @@ TreeSequence_two_locus_count_stat(TreeSequence *self, PyObject *args, PyObject *
 out:
     Py_XDECREF(sample_set_sizes_array);
     Py_XDECREF(sample_sets_array);
-    Py_XDECREF(sites_array);
+    Py_XDECREF(row_sites);
+    Py_XDECREF(col_sites);
     Py_XDECREF(result_matrix);
     return ret;
 }
