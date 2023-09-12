@@ -2443,6 +2443,75 @@ out:
     return ret;
 }
 
+struct sites_matrix_iter_indicies {
+    tsk_id_t *row_shr;
+    tsk_id_t *col_shr;
+    tsk_id_t *row_diff;
+    tsk_id_t *col_diff;
+
+    tsk_size_t n_row_shr;
+    tsk_size_t n_col_shr;
+    tsk_size_t n_row_diff;
+    tsk_size_t n_col_diff;
+};
+
+void
+free_sites_matrix_iter_indicies(struct sites_matrix_iter_indicies *idx)
+{
+    tsk_safe_free(idx->row_shr);
+    tsk_safe_free(idx->col_shr);
+    tsk_safe_free(idx->row_diff);
+    tsk_safe_free(idx->col_diff);
+}
+
+static void
+get_shared_diff_sites(tsk_size_t n_rows, const tsk_id_t *row_sites, tsk_size_t n_cols,
+    const tsk_id_t *col_sites, struct sites_matrix_iter_indicies *idx)
+{
+    // TODO assert that sites are sorted and that non are TSK_NULL
+    tsk_id_t row, col;
+    tsk_size_t r = 0, c = 0;
+
+    idx->row_shr = tsk_calloc(n_rows, sizeof(*(idx->row_shr)));
+    idx->col_shr = tsk_calloc(n_cols, sizeof(*(idx->col_shr)));
+    idx->row_diff = tsk_calloc(n_rows, sizeof(*(idx->row_diff)));
+    idx->col_diff = tsk_calloc(n_cols, sizeof(*(idx->col_diff)));
+    idx->n_row_shr = 0;
+    idx->n_col_shr = 0;
+    idx->n_row_diff = 0;
+    idx->n_col_diff = 0;
+
+    row = row_sites[r];
+    col = col_sites[c];
+
+    while ((r < n_rows) && (c < n_cols)) {
+        if (row < col) {
+            idx->row_diff[idx->n_row_diff++] = r;
+            row = row_sites[++r];
+        } else if (col < row) {
+            idx->col_diff[idx->n_col_diff++] = c;
+            col = col_sites[++c];
+        } else { // row == col
+            idx->col_shr[idx->n_col_shr++] = c;
+            idx->row_shr[idx->n_row_shr++] = r;
+            row = row_sites[++r];
+            col = col_sites[++c];
+        }
+    }
+
+    if (r < n_rows) {
+        while (r < n_rows) {
+            idx->row_diff[idx->n_row_diff++] = r;
+            row = row_sites[++r];
+        }
+    } else if (c < n_cols) {
+        while (c < n_cols) {
+            idx->col_diff[idx->n_col_diff++] = c;
+            col = col_sites[++c];
+        }
+    }
+}
+
 static int
 tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
     const tsk_bit_array_t *sample_sets, tsk_size_t result_dim, general_stat_func_t *f,
@@ -2451,20 +2520,22 @@ tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
     tsk_flags_t options, double *result)
 {
     int ret = 0;
-    tsk_bit_array_t allele_samples;
-    tsk_bit_array_t site_a_state, site_b_state;
-    tsk_size_t inner, result_offset, inner_offset, a_offset, b_offset;
-    tsk_size_t row_site, col_site, site_a, site_b;
+    tsk_bit_array_t allele_samples, site_a_state, site_b_state;
     bool polarised = false;
+    tsk_size_t k, r, c, inner, site_a, site_b, site_id, num_alleles_cumsum;
+    double *result_row;
+    struct sites_matrix_iter_indicies idx;
     const tsk_size_t num_sites = self->tables->sites.num_rows;
     const tsk_size_t num_samples = self->num_samples;
     const tsk_size_t max_alleles = self->tables->mutations.num_rows + num_sites;
     tsk_size_t *num_alleles = tsk_malloc(num_sites * sizeof(*num_alleles));
-    const tsk_size_t *restrict site_muts_len = self->site_mutations_length;
+    tsk_size_t *site_offsets = tsk_malloc(num_sites * sizeof(*site_offsets));
+    // tmp needed for reflecting results across axis
+    double *result_tmp = tsk_calloc(result_dim, sizeof(*result_tmp));
 
     tsk_memset(&allele_samples, 0, sizeof(allele_samples));
 
-    if (num_alleles == NULL) {
+    if (num_alleles == NULL || site_offsets == NULL) {
         ret = TSK_ERR_NO_MEMORY;
         goto out;
     }
@@ -2473,50 +2544,82 @@ tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
     if (ret != 0) {
         goto out;
     }
+    if (options & TSK_STAT_POLARISED) {
+        polarised = true;
+    }
+
     ret = get_mutation_samples(self, num_alleles, &allele_samples);
     if (ret != 0) {
         goto out;
     }
 
-    if (result == NULL) {
-        ret = TSK_ERR_NO_MEMORY;
-        goto out;
+    num_alleles_cumsum = 0;
+    for (site_id = 0; site_id < num_sites; site_id++) {
+        site_offsets[site_id] = num_alleles_cumsum;
+        num_alleles_cumsum += self->site_mutations_length[site_id] + 1;
     }
 
-    if (options & TSK_STAT_POLARISED) {
-        polarised = true;
+    get_shared_diff_sites(num_site_rows, row_sites, num_site_cols, col_sites, &idx);
+
+#define COMPUTE_GENERAL_TWO_SITE_STAT(site_a, site_b, r_idx, c_idx)                     \
+    do {                                                                                \
+        result_row = GET_2D_ROW(result, num_site_cols * result_dim, r_idx);             \
+        tsk_bit_array_get_row(&allele_samples, site_offsets[site_a], &site_a_state);    \
+        tsk_bit_array_get_row(&allele_samples, site_offsets[site_b], &site_b_state);    \
+        ret = compute_general_two_site_stat_result(&site_a_state, &site_b_state,        \
+            num_alleles[site_a], num_alleles[site_b], num_samples, state_dim,           \
+            sample_sets, result_dim, f, f_params, norm_f, polarised,                    \
+            &(result_row[c_idx * result_dim]));                                         \
+        if (ret != 0) {                                                                 \
+            goto out;                                                                   \
+        }                                                                               \
+    } while (0);
+
+    for (r = 0; r < idx.n_row_diff; r++) {
+        site_a = (tsk_size_t) row_sites[idx.row_diff[r]];
+        for (c = 0; c < idx.n_col_diff; c++) {
+            site_b = (tsk_size_t) col_sites[idx.col_diff[c]];
+            COMPUTE_GENERAL_TWO_SITE_STAT(
+                site_a, site_b, idx.row_diff[r], idx.col_diff[c]);
+        }
+        for (c = 0; c < idx.n_col_shr; c++) {
+            site_b = (tsk_size_t) col_sites[idx.col_shr[c]];
+            COMPUTE_GENERAL_TWO_SITE_STAT(
+                site_a, site_b, idx.row_diff[r], idx.col_shr[c]);
+        }
+    }
+
+    for (c = 0; c < idx.n_col_diff; c++) {
+        site_a = (tsk_size_t) col_sites[idx.col_diff[c]];
+        for (r = 0; r < idx.n_row_shr; r++) {
+            site_b = (tsk_size_t) row_sites[idx.row_shr[r]];
+            COMPUTE_GENERAL_TWO_SITE_STAT(
+                site_a, site_b, idx.row_shr[r], idx.col_diff[c]);
+        }
     }
 
     inner = 0;
-    a_offset = 0;
-    b_offset = 0;
-    inner_offset = 0;
-    result_offset = 0;
-    // TODO: implement windows!
-    for (row_site = 0; row_site < num_site_rows; row_site++) {
-        site_a = (tsk_size_t) row_sites[row_site];
-        b_offset = inner_offset;
-        for (col_site = inner; col_site < num_site_cols; col_site++) {
-            site_b = (tsk_size_t) col_sites[col_site];
-            tsk_bit_array_get_row(&allele_samples, a_offset, &site_a_state);
-            tsk_bit_array_get_row(&allele_samples, b_offset, &site_b_state);
-            ret = compute_general_two_site_stat_result(&site_a_state, &site_b_state,
-                num_alleles[site_a], num_alleles[site_b], num_samples, state_dim,
-                sample_sets, result_dim, f, f_params, norm_f, polarised,
-                &(result[result_offset]));
-            if (ret != 0) {
-                goto out;
+    for (r = 0; r < idx.n_row_shr; r++) {
+        site_a = (tsk_size_t) row_sites[idx.row_shr[r]];
+        for (c = inner; c < idx.n_col_shr; c++) {
+            site_b = (tsk_size_t) col_sites[idx.col_shr[c]];
+            COMPUTE_GENERAL_TWO_SITE_STAT(
+                site_a, site_b, idx.row_shr[r], idx.col_shr[c]);
+            // Reflect across axis
+            for (k = 0; k < result_dim; k++) {
+                result_tmp[k] = result_row[(idx.col_shr[c] * result_dim) + k];
             }
-            result_offset += result_dim;
-            b_offset += site_muts_len[site_b] + 1;
+            result_row = GET_2D_ROW(result, num_site_cols * result_dim, idx.col_shr[c]);
+            for (k = 0; k < result_dim; k++) {
+                result_row[(idx.row_shr[r] * result_dim) + k] = result_tmp[k];
+            }
         }
-        a_offset += site_muts_len[site_a] + 1;
-        inner_offset += site_muts_len[site_a] + 1;
         inner++;
     }
 
 out:
     tsk_safe_free(num_alleles);
+    free_sites_matrix_iter_indicies(&idx);
     tsk_bit_array_free(&allele_samples);
     return ret;
 }
