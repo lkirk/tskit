@@ -7515,15 +7515,14 @@ class TreeSequence:
             self,
             ll_method,
             sample_sets,
+            stat=None,
             sites=None,
             mode=None,
     ):
         if sample_sets is None:
             sample_sets = self.samples()
-        if sites is None:
-            # TODO: what dtype should this be? Depends on the size of tsk_id_t
-            sites = np.arange(self.tables.sites.num_rows, dtype=np.int32)
-            sites = np.vstack([sites, sites])
+        if stat is None:
+            raise ValueError("A stat must be specified.")
 
         # First try to convert to a 1D numpy array. If it is, then we strip off
         # the corresponding dimension from the output.
@@ -7551,11 +7550,12 @@ class TreeSequence:
             sample_set_sizes,
             flattened,
             sites,
+            stat,
             mode
         )
 
         if drop_dimension:
-            stat = stat.reshape(stat.shape[0], stat.shape[2])
+            stat = stat.reshape(stat.shape[:2])
 
         return stat
 
@@ -9180,12 +9180,13 @@ class TreeSequence:
             mutations_time[unknown] = self.nodes_time[self.mutations_node[unknown]]
             return mutations_time
 
-    def r2(
-        self, sample_sets=None, sites=None, mode="site"
+    def ld_matrix(
+            self, sample_sets=None, sites=None, mode="site", stat="r2"
     ):
         return self.__two_locus_sample_set_stat(
-            self._ll_tree_sequence.r2,
+            self._ll_tree_sequence.ld_matrix,
             sample_sets,
+            stat=stat,
             sites=sites,
             mode=mode,
         )

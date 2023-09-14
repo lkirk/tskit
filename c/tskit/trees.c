@@ -23,6 +23,7 @@
  * SOFTWARE.
  */
 
+#include "tskit/core.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
@@ -2444,10 +2445,10 @@ out:
 }
 
 struct sites_matrix_iter_indicies {
-    tsk_id_t *row_shr;
-    tsk_id_t *col_shr;
-    tsk_id_t *row_diff;
-    tsk_id_t *col_diff;
+    tsk_size_t *row_shr;
+    tsk_size_t *col_shr;
+    tsk_size_t *row_diff;
+    tsk_size_t *col_diff;
 
     tsk_size_t n_row_shr;
     tsk_size_t n_col_shr;
@@ -2455,13 +2456,43 @@ struct sites_matrix_iter_indicies {
     tsk_size_t n_col_diff;
 };
 
-void
-free_sites_matrix_iter_indicies(struct sites_matrix_iter_indicies *idx)
+static void
+sites_matrix_iter_indices_free(struct sites_matrix_iter_indicies *self)
 {
-    tsk_safe_free(idx->row_shr);
-    tsk_safe_free(idx->col_shr);
-    tsk_safe_free(idx->row_diff);
-    tsk_safe_free(idx->col_diff);
+    tsk_safe_free(self->row_shr);
+    tsk_safe_free(self->col_shr);
+    tsk_safe_free(self->row_diff);
+    tsk_safe_free(self->col_diff);
+}
+
+static void
+sites_matrix_iter_indices_init(
+    tsk_size_t n_rows, tsk_size_t n_cols, struct sites_matrix_iter_indicies *self)
+{
+    self->row_shr = tsk_calloc(n_rows, sizeof(*(self->row_shr)));
+    self->col_shr = tsk_calloc(n_cols, sizeof(*(self->col_shr)));
+    self->row_diff = tsk_calloc(n_rows, sizeof(*(self->row_diff)));
+    self->col_diff = tsk_calloc(n_cols, sizeof(*(self->col_diff)));
+    self->n_row_shr = 0;
+    self->n_col_shr = 0;
+    self->n_row_diff = 0;
+    self->n_col_diff = 0;
+}
+
+static void
+get_default_shared_diff_sites(tsk_size_t n_sites, tsk_id_t *row_sites,
+    tsk_id_t *col_sites, struct sites_matrix_iter_indicies *idx)
+{
+    tsk_size_t s;
+    sites_matrix_iter_indices_init(n_sites, n_sites, idx);
+    for (s = 0; s < n_sites; s++) {
+        idx->row_shr[s] = s;
+        idx->col_shr[s] = s;
+        row_sites[s] = (tsk_id_t) s;
+        col_sites[s] = (tsk_id_t) s;
+    }
+    idx->n_row_shr = s;
+    idx->n_col_shr = s;
 }
 
 static void
@@ -2472,14 +2503,7 @@ get_shared_diff_sites(tsk_size_t n_rows, const tsk_id_t *row_sites, tsk_size_t n
     tsk_id_t row, col;
     tsk_size_t r = 0, c = 0;
 
-    idx->row_shr = tsk_calloc(n_rows, sizeof(*(idx->row_shr)));
-    idx->col_shr = tsk_calloc(n_cols, sizeof(*(idx->col_shr)));
-    idx->row_diff = tsk_calloc(n_rows, sizeof(*(idx->row_diff)));
-    idx->col_diff = tsk_calloc(n_cols, sizeof(*(idx->col_diff)));
-    idx->n_row_shr = 0;
-    idx->n_col_shr = 0;
-    idx->n_row_diff = 0;
-    idx->n_col_diff = 0;
+    sites_matrix_iter_indices_init(n_rows, n_cols, idx);
 
     row = row_sites[r];
     col = col_sites[c];
@@ -2526,6 +2550,9 @@ tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
     double *result_row;
     struct sites_matrix_iter_indicies idx;
     const tsk_size_t num_sites = self->tables->sites.num_rows;
+    // TODO: GET RID OF THIS
+    tsk_id_t *default_row_sites = tsk_malloc(num_sites * sizeof(*default_row_sites));
+    tsk_id_t *default_col_sites = tsk_malloc(num_sites * sizeof(*default_col_sites));
     const tsk_size_t num_samples = self->num_samples;
     const tsk_size_t max_alleles = self->tables->mutations.num_rows + num_sites;
     tsk_size_t *num_alleles = tsk_malloc(num_sites * sizeof(*num_alleles));
@@ -2559,7 +2586,16 @@ tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
         num_alleles_cumsum += self->site_mutations_length[site_id] + 1;
     }
 
-    get_shared_diff_sites(num_site_rows, row_sites, num_site_cols, col_sites, &idx);
+    if (row_sites == NULL && col_sites == NULL) {
+        get_default_shared_diff_sites(
+            num_sites, default_row_sites, default_col_sites, &idx);
+        num_site_rows = num_sites;
+        num_site_cols = num_sites;
+        row_sites = default_row_sites;
+        col_sites = default_col_sites;
+    } else {
+        get_shared_diff_sites(num_site_rows, row_sites, num_site_cols, col_sites, &idx);
+    }
 
 #define COMPUTE_GENERAL_TWO_SITE_STAT(site_a, site_b, r_idx, c_idx)                     \
     do {                                                                                \
@@ -2619,7 +2655,7 @@ tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
 
 out:
     tsk_safe_free(num_alleles);
-    free_sites_matrix_iter_indicies(&idx);
+    sites_matrix_iter_indices_free(&idx);
     tsk_bit_array_free(&allele_samples);
     return ret;
 }
@@ -2655,6 +2691,40 @@ sample_sets_to_bit_array(const tsk_treeseq_t *self, const tsk_size_t *sample_set
         }
     }
 
+out:
+    return ret;
+}
+
+static int
+check_sites(const tsk_id_t *sites, tsk_size_t num_sites)
+{
+    int ret = 0;
+    tsk_id_t id;
+    tsk_size_t i;
+
+    if (sites == NULL) {
+        goto out;
+    }
+
+    // TODO: should not be able to specify a site larger than number of sites
+
+    for (i = 0; i < num_sites - 1; i++) {
+        id = sites[i];
+        if (id == TSK_NULL) {
+            ret = TSK_ERR_BAD_PARAM_VALUE; // TODO: new err type? TSK_BAD_SITE_VALUE?
+            goto out;
+        }
+        if (id > sites[i + 1]) {
+            ret = TSK_ERR_UNSORTED_SITES; // TODO: this checks no repeats, but error is
+                                          // ambiguous
+            goto out;
+        }
+    }
+    // check the last or only value
+    if (num_sites != 0 && sites[num_sites - 1] == TSK_NULL) {
+        ret = TSK_ERR_BAD_PARAM_VALUE; // TODO: new err type? TSK_BAD_SITE_VALUE?
+        goto out;
+    }
 out:
     return ret;
 }
@@ -2702,6 +2772,14 @@ tsk_treeseq_two_locus_count_stat(const tsk_treeseq_t *self, tsk_size_t num_sampl
 
     ret = tsk_treeseq_check_sample_sets(
         self, num_sample_sets, sample_set_sizes, sample_sets);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = check_sites(row_sites, out_rows);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = check_sites(col_sites, out_cols);
     if (ret != 0) {
         goto out;
     }

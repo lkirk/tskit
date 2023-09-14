@@ -9822,10 +9822,17 @@ parse_sites(PyObject *sites, PyArrayObject **ret_row_sites,
     PyArrayObject *row_sites = NULL;
     PyArrayObject *col_sites = NULL;
     PyObject *list;
+    if (sites == NULL) {
+        ret = 0;
+        num_sites_row = 0;
+        num_sites_col = 0;
+        goto out;
+    }
 
+    // TODO: single list or two lists, but no more than 2
     Py_ssize_t sites_len;
     if ((sites_len = PyList_GET_SIZE(sites)) != 2) {
-        PyErr_SetString(PyExc_ValueError, "Expected a list of exactly length two.");
+        PyErr_SetString(PyExc_ValueError, "Expected a site list of exactly length two.");
         goto out;
     }
 
@@ -9856,12 +9863,36 @@ out:
     return ret;
 }
 
+static two_locus_count_stat_method *
+parse_two_locus_method(const char *name)
+{
+    if (!strcmp(name, "D")) {
+        return tsk_treeseq_D;
+    } else if (!strcmp(name, "D2")) {
+        return tsk_treeseq_D2;
+    } else if (!strcmp(name, "r2")) {
+        return tsk_treeseq_r2;
+    } else if (!strcmp(name, "D_prime")) {
+        return tsk_treeseq_D_prime;
+    } else if (!strcmp(name, "r")) {
+        return tsk_treeseq_r;
+    } else if (!strcmp(name, "Dz")) {
+        return tsk_treeseq_Dz;
+    } else if (!strcmp(name, "pi2")) {
+        return tsk_treeseq_pi2;
+    }
+
+    return NULL;
+}
+
 static PyObject *
-TreeSequence_two_locus_count_stat(TreeSequence *self, PyObject *args, PyObject *kwds,
-    two_locus_count_stat_method *method)
+TreeSequence_ld_matrix(TreeSequence *self, PyObject *args, PyObject *kwds)
 {
     PyObject *ret = NULL;
-    static char *kwlist[] = { "sample_set_sizes", "sample_sets", "sites", "mode", NULL };
+    static char *kwlist[]
+        = { "sample_set_sizes", "sample_sets", "sites", "mode", "stat", NULL };
+    two_locus_count_stat_method *method;
+    const char *method_name = NULL;
     PyObject *sample_set_sizes = NULL;
     PyObject *sample_sets = NULL;
     PyObject *sites = NULL;
@@ -9872,15 +9903,15 @@ TreeSequence_two_locus_count_stat(TreeSequence *self, PyObject *args, PyObject *
     PyArrayObject *result_matrix = NULL;
     npy_intp result_shape[3];
     char *mode = NULL;
-    tsk_size_t num_rows, num_cols, num_sample_sets;
+    tsk_size_t num_sample_sets, num_rows, num_cols;
     tsk_flags_t options = 0;
     int err;
 
     if (TreeSequence_check_state(self) != 0) {
         goto out;
     }
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOO|s", kwlist, &sample_set_sizes,
-            &sample_sets, &sites, &mode)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOOs|s", kwlist, &sample_set_sizes,
+            &sample_sets, &sites, &method_name, &mode)) {
         goto out;
     }
     if (parse_stats_mode(mode, &options) != 0) {
@@ -9894,10 +9925,14 @@ TreeSequence_two_locus_count_stat(TreeSequence *self, PyObject *args, PyObject *
     if (parse_sites(sites, &row_sites, &col_sites, &num_rows, &num_cols) != 0) {
         goto out;
     }
+    if ((method = parse_two_locus_method(method_name)) == NULL) {
+        PyErr_SetString(PyExc_ValueError, "Unknown stat method specified.");
+        goto out;
+    }
 
     result_shape[0] = num_rows;
-    result_shape[1] = num_sample_sets;
-    result_shape[2] = num_cols;
+    result_shape[1] = num_cols;
+    result_shape[2] = num_sample_sets;
     result_matrix = (PyArrayObject *) PyArray_ZEROS(3, result_shape, NPY_FLOAT64, 0);
     if (result_matrix == NULL) {
         goto out;
@@ -9920,12 +9955,6 @@ out:
     Py_XDECREF(col_sites);
     Py_XDECREF(result_matrix);
     return ret;
-}
-
-static PyObject *
-TreeSequence_r2(TreeSequence *self, PyObject *args, PyObject *kwds)
-{
-    return TreeSequence_two_locus_count_stat(self, args, kwds, tsk_treeseq_r2);
 }
 
 static PyObject *
@@ -10652,10 +10681,10 @@ static PyMethodDef TreeSequence_methods[] = {
         .ml_meth = (PyCFunction) TreeSequence_has_reference_sequence,
         .ml_flags = METH_NOARGS,
         .ml_doc = "Returns True if the TreeSequence has a reference sequence." },
-    { .ml_name = "r2",
-        .ml_meth = (PyCFunction) TreeSequence_r2,
+    { .ml_name = "ld_matrix",
+        .ml_meth = (PyCFunction) TreeSequence_ld_matrix,
         .ml_flags = METH_VARARGS | METH_KEYWORDS,
-        .ml_doc = "Computes r2 statistic." },
+        .ml_doc = "Computes an LD matrix for a specified statistic." },
     { NULL } /* Sentinel */
 };
 
