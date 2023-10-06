@@ -2356,18 +2356,133 @@ out:
     return ret;
 }
 
+struct stat_matrix_site_indicies {
+    tsk_size_t n_sites;
+    tsk_size_t n_rshr;
+    tsk_size_t n_cshr;
+    tsk_size_t n_rdiff;
+    tsk_size_t n_cdiff;
+
+    tsk_id_t *sites;
+    tsk_size_t *rshr;
+    tsk_size_t *cshr;
+    tsk_size_t *rdiff;
+    tsk_size_t *cdiff;
+    tsk_size_t *rshr_idx;
+    tsk_size_t *cshr_idx;
+    tsk_size_t *rdiff_idx;
+    tsk_size_t *cdiff_idx;
+};
+
+static void
+stat_matrix_site_indicies_free(struct stat_matrix_site_indicies *idx)
+{
+    tsk_safe_free(idx->sites);
+    tsk_safe_free(idx->rshr);
+    tsk_safe_free(idx->cshr);
+    tsk_safe_free(idx->rdiff);
+    tsk_safe_free(idx->cdiff);
+    tsk_safe_free(idx->rshr_idx);
+    tsk_safe_free(idx->cshr_idx);
+    tsk_safe_free(idx->rdiff_idx);
+    tsk_safe_free(idx->cdiff_idx);
+}
+
+static void
+get_stat_matrix_site_indices(tsk_size_t n_sites, tsk_size_t n_rows,
+    const tsk_id_t *row_sites, tsk_size_t n_cols, const tsk_id_t *col_sites,
+    struct stat_matrix_site_indicies *idx)
+{
+    tsk_id_t row, col;
+    tsk_size_t r = 0, c = 0, s = 0;
+    tsk_size_t n_cdiff = 0, n_rdiff = 0, n_rshr = 0, n_cshr = 0;
+    tsk_id_t *sites, *unique_sites = tsk_malloc(n_sites * sizeof(*unique_sites));
+    tsk_size_t *cshr = tsk_malloc(n_sites * sizeof(*cshr));
+    tsk_size_t *rshr = tsk_malloc(n_sites * sizeof(*rshr));
+    tsk_size_t *rdiff = tsk_malloc(n_sites * sizeof(*rdiff));
+    tsk_size_t *cdiff = tsk_malloc(n_sites * sizeof(*cdiff));
+
+    tsk_size_t *cshr_idx = tsk_malloc(n_sites * sizeof(*cshr_idx));
+    tsk_size_t *rshr_idx = tsk_malloc(n_sites * sizeof(*rshr_idx));
+    tsk_size_t *rdiff_idx = tsk_malloc(n_sites * sizeof(*rdiff_idx));
+    tsk_size_t *cdiff_idx = tsk_malloc(n_sites * sizeof(*cdiff_idx));
+
+    row = row_sites[r];
+    col = col_sites[c];
+
+    while ((r < n_rows) && (c < n_cols)) {
+        if (row < col) {
+            rdiff_idx[n_rdiff] = s;
+            rdiff[n_rdiff++] = r;
+            unique_sites[s++] = row;
+            row = row_sites[++r];
+        } else if (col < row) {
+            cdiff_idx[n_cdiff] = s;
+            cdiff[n_cdiff++] = c;
+            unique_sites[s++] = col;
+            col = col_sites[++c];
+        } else { // row == col
+            rshr_idx[n_rshr] = s;
+            cshr_idx[n_cshr] = s;
+            rshr[n_rshr++] = r;
+            cshr[n_cshr++] = c;
+            unique_sites[s++] = row;
+            row = row_sites[++r];
+            col = col_sites[++c];
+        }
+    }
+    if (r < n_rows) {
+        while (r < n_rows) {
+            rdiff_idx[n_rdiff] = s;
+            rdiff[n_rdiff++] = r;
+            unique_sites[s++] = row;
+            row = row_sites[++r];
+        }
+    } else if (c < n_cols) {
+        while (c < n_cols) {
+            cdiff_idx[n_cdiff] = s;
+            cdiff[n_cdiff++] = c;
+            unique_sites[s++] = col;
+            col = col_sites[++c];
+        }
+    }
+
+    sites = tsk_malloc(s * sizeof(*sites));
+    tsk_memcpy(sites, unique_sites, s * sizeof(*sites));
+
+    idx->n_sites = s;
+    idx->n_rshr = n_rshr;
+    idx->n_cshr = n_cshr;
+    idx->n_rdiff = n_rdiff;
+    idx->n_cdiff = n_cdiff;
+    idx->sites = sites;
+    idx->rshr = rshr;
+    idx->cshr = cshr;
+    idx->rdiff = rdiff;
+    idx->cdiff = cdiff;
+
+    idx->rshr_idx = rshr_idx;
+    idx->cshr_idx = cshr_idx;
+    idx->rdiff_idx = rdiff_idx;
+    idx->cdiff_idx = cdiff_idx;
+
+    tsk_safe_free(unique_sites);
+}
+
 static int
-get_mutation_samples(
-    const tsk_treeseq_t *ts, tsk_size_t *num_alleles, tsk_bit_array_t *allele_samples)
+get_mutation_samples(const tsk_treeseq_t *ts,
+    const struct stat_matrix_site_indicies *idx, tsk_size_t *num_alleles,
+    tsk_bit_array_t *allele_samples)
 {
     int ret = 0;
     const tsk_flags_t *restrict flags = ts->tables->nodes.flags;
     const tsk_size_t num_samples = tsk_treeseq_get_num_samples(ts);
     const tsk_size_t *restrict site_muts_len = ts->site_mutations_length;
     const tsk_site_t *restrict site;
+    tsk_site_t first_site;
     tsk_tree_t tree;
     tsk_bit_array_t all_samples_bits, mut_samples, mut_samples_row, out_row;
-    tsk_size_t max_muts_len, mut_offset, num_nodes, s, m, n;
+    tsk_size_t max_muts_len, mut_offset, num_nodes, curr_site, s, m, n;
     tsk_id_t node, *nodes = NULL;
     void *tmp_nodes;
 
@@ -2375,9 +2490,9 @@ get_mutation_samples(
     tsk_memset(&all_samples_bits, 0, sizeof(all_samples_bits));
 
     max_muts_len = 0;
-    for (s = 0; s < ts->tables->sites.num_rows; s++) {
-        if (site_muts_len[s] > max_muts_len) {
-            max_muts_len = site_muts_len[s];
+    for (s = 0; s < idx->n_sites; s++) {
+        if (site_muts_len[idx->sites[s]] > max_muts_len) {
+            max_muts_len = site_muts_len[idx->sites[s]];
         }
     }
     ret = tsk_bit_array_init(&mut_samples, num_samples, max_muts_len);
@@ -2398,10 +2513,20 @@ get_mutation_samples(
     // instead of all samples
     get_all_samples_bits(&all_samples_bits, num_samples);
 
+    tree.index = -1; // TODO: forcing seek_from_null
+    ret = tsk_treeseq_get_site(ts, idx->sites[0], &first_site);
+    if (ret != 0) {
+        return ret;
+    }
+    mut_offset = 0;
+    curr_site = 0;
     // Traverse down each tree, recording all samples below each mutation. We perform one
     // preorder traversal per mutation.
-    mut_offset = 0;
-    for (ret = tsk_tree_first(&tree); ret == TSK_TREE_OK; ret = tsk_tree_next(&tree)) {
+    // TODO: pull the seek out of the loop?
+    /* for (ret = tsk_tree_seek(&tree, first_site.position, 0); ret == TSK_TREE_OK; */
+    /*      ret = tsk_tree_next(&tree)) { */
+    for (ret = tsk_tree_seek(&tree, first_site.position, 0);
+         ret == TSK_TREE_OK || ret == 0; ret = tsk_tree_next(&tree)) {
         tmp_nodes = tsk_realloc(nodes, tsk_tree_get_size_bound(&tree) * sizeof(*nodes));
         if (tmp_nodes == NULL) {
             ret = TSK_ERR_NO_MEMORY;
@@ -2410,6 +2535,14 @@ get_mutation_samples(
         nodes = tmp_nodes;
         for (s = 0; s < tree.sites_length; s++) {
             site = &tree.sites[s];
+            if (site->id != idx->sites[curr_site]) {
+                if (site->id >= idx->sites[idx->n_sites - 1]) {
+                    ret = 0;
+                    goto out;
+                }
+                continue;
+            }
+            /* printf("site %d\n", site->id); */
             tsk_bit_array_get_row(allele_samples, mut_offset, &out_row);
             tsk_bit_array_add(&out_row, &all_samples_bits);
             // Zero out results before the start of each iteration
@@ -2432,7 +2565,8 @@ get_mutation_samples(
                 mut_offset++;
             }
             mut_offset++; // One more for the ancestral allele
-            get_allele_samples(site, &mut_samples, &out_row, &(num_alleles[site->id]));
+            get_allele_samples(site, &mut_samples, &out_row, &(num_alleles[curr_site]));
+            curr_site++;
         }
     }
     // if adding code below, check ret before continuing
@@ -2444,98 +2578,6 @@ out:
     return ret;
 }
 
-struct sites_matrix_iter_indicies {
-    tsk_size_t *row_shr;
-    tsk_size_t *col_shr;
-    tsk_size_t *row_diff;
-    tsk_size_t *col_diff;
-
-    tsk_size_t n_row_shr;
-    tsk_size_t n_col_shr;
-    tsk_size_t n_row_diff;
-    tsk_size_t n_col_diff;
-};
-
-static void
-sites_matrix_iter_indices_free(struct sites_matrix_iter_indicies *self)
-{
-    tsk_safe_free(self->row_shr);
-    tsk_safe_free(self->col_shr);
-    tsk_safe_free(self->row_diff);
-    tsk_safe_free(self->col_diff);
-}
-
-static void
-sites_matrix_iter_indices_init(
-    tsk_size_t n_rows, tsk_size_t n_cols, struct sites_matrix_iter_indicies *self)
-{
-    self->row_shr = tsk_calloc(n_rows, sizeof(*(self->row_shr)));
-    self->col_shr = tsk_calloc(n_cols, sizeof(*(self->col_shr)));
-    self->row_diff = tsk_calloc(n_rows, sizeof(*(self->row_diff)));
-    self->col_diff = tsk_calloc(n_cols, sizeof(*(self->col_diff)));
-    self->n_row_shr = 0;
-    self->n_col_shr = 0;
-    self->n_row_diff = 0;
-    self->n_col_diff = 0;
-}
-
-static void
-get_default_shared_diff_sites(tsk_size_t n_sites, tsk_id_t *row_sites,
-    tsk_id_t *col_sites, struct sites_matrix_iter_indicies *idx)
-{
-    tsk_size_t s;
-    sites_matrix_iter_indices_init(n_sites, n_sites, idx);
-    for (s = 0; s < n_sites; s++) {
-        idx->row_shr[s] = s;
-        idx->col_shr[s] = s;
-        row_sites[s] = (tsk_id_t) s;
-        col_sites[s] = (tsk_id_t) s;
-    }
-    idx->n_row_shr = s;
-    idx->n_col_shr = s;
-}
-
-static void
-get_shared_diff_sites(tsk_size_t n_rows, const tsk_id_t *row_sites, tsk_size_t n_cols,
-    const tsk_id_t *col_sites, struct sites_matrix_iter_indicies *idx)
-{
-    // TODO assert that sites are sorted and that non are TSK_NULL
-    tsk_id_t row, col;
-    tsk_size_t r = 0, c = 0;
-
-    sites_matrix_iter_indices_init(n_rows, n_cols, idx);
-
-    row = row_sites[r];
-    col = col_sites[c];
-
-    while ((r < n_rows) && (c < n_cols)) {
-        if (row < col) {
-            idx->row_diff[idx->n_row_diff++] = r;
-            row = row_sites[++r];
-        } else if (col < row) {
-            idx->col_diff[idx->n_col_diff++] = c;
-            col = col_sites[++c];
-        } else { // row == col
-            idx->col_shr[idx->n_col_shr++] = c;
-            idx->row_shr[idx->n_row_shr++] = r;
-            row = row_sites[++r];
-            col = col_sites[++c];
-        }
-    }
-
-    if (r < n_rows) {
-        while (r < n_rows) {
-            idx->row_diff[idx->n_row_diff++] = r;
-            row = row_sites[++r];
-        }
-    } else if (c < n_cols) {
-        while (c < n_cols) {
-            idx->col_diff[idx->n_col_diff++] = c;
-            col = col_sites[++c];
-        }
-    }
-}
-
 static int
 tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
     const tsk_bit_array_t *sample_sets, tsk_size_t result_dim, general_stat_func_t *f,
@@ -2543,111 +2585,136 @@ tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
     const tsk_id_t *row_sites, tsk_size_t num_site_cols, const tsk_id_t *col_sites,
     tsk_flags_t options, double *result)
 {
+
     int ret = 0;
-    tsk_bit_array_t allele_samples, site_a_state, site_b_state;
+    tsk_bit_array_t allele_samples, c_state, r_state;
     bool polarised = false;
-    tsk_size_t k, r, c, inner, site_a, site_b, site_id, num_alleles_cumsum;
+    tsk_id_t site_id;
+    tsk_size_t r, c, inner, s, num_alleles_cumsum;
     double *result_row;
-    struct sites_matrix_iter_indicies idx;
-    const tsk_size_t num_sites = self->tables->sites.num_rows;
-    // TODO: GET RID OF THIS
-    tsk_id_t *default_row_sites = tsk_malloc(num_sites * sizeof(*default_row_sites));
-    tsk_id_t *default_col_sites = tsk_malloc(num_sites * sizeof(*default_col_sites));
+    struct stat_matrix_site_indicies idx;
     const tsk_size_t num_samples = self->num_samples;
-    const tsk_size_t max_alleles = self->tables->mutations.num_rows + num_sites;
-    tsk_size_t *num_alleles = tsk_malloc(num_sites * sizeof(*num_alleles));
-    tsk_size_t *site_offsets = tsk_malloc(num_sites * sizeof(*site_offsets));
+    tsk_size_t *num_alleles, *site_offsets;
     // tmp needed for reflecting results across axis
-    double *result_tmp = tsk_calloc(result_dim, sizeof(*result_tmp));
+    double *result_row_tmp;
 
     tsk_memset(&allele_samples, 0, sizeof(allele_samples));
 
+    if (options & TSK_STAT_POLARISED) {
+        polarised = true;
+    }
+
+    get_stat_matrix_site_indices(self->tables->sites.num_rows, num_site_rows, row_sites,
+        num_site_cols, col_sites, &idx);
+
+    num_alleles = tsk_malloc(idx.n_sites * sizeof(*num_alleles));
+    site_offsets = tsk_malloc(idx.n_sites * sizeof(*site_offsets));
     if (num_alleles == NULL || site_offsets == NULL) {
         ret = TSK_ERR_NO_MEMORY;
         goto out;
     }
 
-    ret = tsk_bit_array_init(&allele_samples, num_samples, max_alleles);
-    if (ret != 0) {
-        goto out;
-    }
-    if (options & TSK_STAT_POLARISED) {
-        polarised = true;
-    }
-
-    ret = get_mutation_samples(self, num_alleles, &allele_samples);
-    if (ret != 0) {
-        goto out;
-    }
-
     num_alleles_cumsum = 0;
-    for (site_id = 0; site_id < num_sites; site_id++) {
-        site_offsets[site_id] = num_alleles_cumsum;
+    s = 0;
+    for (s = 0; s < idx.n_sites; s++) {
+        site_id = idx.sites[s];
+        site_offsets[s] = num_alleles_cumsum;
         num_alleles_cumsum += self->site_mutations_length[site_id] + 1;
     }
-
-    if (row_sites == NULL && col_sites == NULL) {
-        get_default_shared_diff_sites(
-            num_sites, default_row_sites, default_col_sites, &idx);
-        num_site_rows = num_sites;
-        num_site_cols = num_sites;
-        row_sites = default_row_sites;
-        col_sites = default_col_sites;
-    } else {
-        get_shared_diff_sites(num_site_rows, row_sites, num_site_cols, col_sites, &idx);
+    ret = tsk_bit_array_init(&allele_samples, num_samples, num_alleles_cumsum);
+    if (ret != 0) {
+        goto out;
     }
-
-#define COMPUTE_GENERAL_TWO_SITE_STAT(site_a, site_b, r_idx, c_idx)                     \
+    ret = get_mutation_samples(self, &idx, num_alleles, &allele_samples);
+    if (ret != 0) {
+        goto out;
+    }
+    // TODO: NEED TO KNOW WHICH ENUMERATED SITE TO SELECT SITE FROM SITE OFFSETS
+#define COMPUTE(c_id, r_idx, c_idx)                                                     \
     do {                                                                                \
-        result_row = GET_2D_ROW(result, num_site_cols * result_dim, r_idx);             \
-        tsk_bit_array_get_row(&allele_samples, site_offsets[site_a], &site_a_state);    \
-        tsk_bit_array_get_row(&allele_samples, site_offsets[site_b], &site_b_state);    \
-        ret = compute_general_two_site_stat_result(&site_a_state, &site_b_state,        \
-            num_alleles[site_a], num_alleles[site_b], num_samples, state_dim,           \
+        tsk_bit_array_get_row(&allele_samples, site_offsets[r_idx], &r_state);          \
+        tsk_bit_array_get_row(&allele_samples, site_offsets[c_idx], &c_state);          \
+        ret = compute_general_two_site_stat_result(&r_state, &c_state,                  \
+            num_alleles[r_idx], num_alleles[c_idx], num_samples, state_dim,             \
             sample_sets, result_dim, f, f_params, norm_f, polarised,                    \
-            &(result_row[c_idx * result_dim]));                                         \
+            &(result_row[(c_id) *result_dim]));                                         \
         if (ret != 0) {                                                                 \
             goto out;                                                                   \
         }                                                                               \
     } while (0);
 
-    for (r = 0; r < idx.n_row_diff; r++) {
-        site_a = (tsk_size_t) row_sites[idx.row_diff[r]];
-        for (c = 0; c < idx.n_col_diff; c++) {
-            site_b = (tsk_size_t) col_sites[idx.col_diff[c]];
-            COMPUTE_GENERAL_TWO_SITE_STAT(
-                site_a, site_b, idx.row_diff[r], idx.col_diff[c]);
+    /* printf("rshr (%lu): {", idx.n_rshr); */
+    /* for (tsk_size_t i = 0; i < idx.n_rshr; i++) { */
+    /*     printf(" %lu", idx.rshr[i]); */
+    /* } */
+    /* printf(" }\n"); */
+
+    /* printf("cshr (%lu): {", idx.n_cshr); */
+    /* for (tsk_size_t i = 0; i < idx.n_cshr; i++) { */
+    /*     printf(" %lu", idx.cshr[i]); */
+    /* } */
+    /* printf(" }\n"); */
+
+    /* printf("rdiff (%lu): {", idx.n_rdiff); */
+    /* for (tsk_size_t i = 0; i < idx.n_rdiff; i++) { */
+    /*     printf(" %lu", idx.rdiff[i]); */
+    /* } */
+    /* printf(" }\n"); */
+
+    /* printf("cdiff (%lu): {", idx.n_cdiff); */
+    /* for (tsk_size_t i = 0; i < idx.n_cdiff; i++) { */
+    /*     printf(" %lu", idx.cdiff[i]); */
+    /* } */
+    /* printf(" }\n"); */
+
+    /* printf("sites (%lu): {", idx.n_sites); */
+    /* for (tsk_size_t i = 0; i < idx.n_sites; i++) { */
+    /*     printf(" %d", idx.sites[i]); */
+    /* } */
+    /* printf(" }\n"); */
+
+    tsk_size_t result_row_len = num_site_cols * result_dim;
+    for (r = 0; r < idx.n_rdiff; r++) {
+        result_row = GET_2D_ROW(result, result_row_len, idx.rdiff[r]);
+        for (c = 0; c < idx.n_cdiff; c++) {
+            /* printf("a: %lu %lu %d %d %li\n", idx.rdiff[r], idx.cdiff[c], */
+            /*     row_sites[idx.rdiff[r]], col_sites[idx.cdiff[c]], result_row -
+             * result); */
+            COMPUTE(idx.cdiff[c], idx.rdiff_idx[r], idx.cdiff_idx[c]);
         }
-        for (c = 0; c < idx.n_col_shr; c++) {
-            site_b = (tsk_size_t) col_sites[idx.col_shr[c]];
-            COMPUTE_GENERAL_TWO_SITE_STAT(
-                site_a, site_b, idx.row_diff[r], idx.col_shr[c]);
+        for (c = 0; c < idx.n_cshr; c++) {
+            /* printf("b: %lu %lu %d %d %li\n", idx.rdiff[r], idx.cshr[c], */
+            /*     row_sites[idx.rdiff[r]], col_sites[idx.cshr[c]], result_row - result);
+             */
+            COMPUTE(idx.cshr[c], idx.rdiff_idx[r], idx.cshr_idx[c]);
+        }
+    }
+    for (r = 0; r < idx.n_rshr; r++) {
+        result_row = GET_2D_ROW(result, result_row_len, idx.rshr[r]);
+        for (c = 0; c < idx.n_cdiff; c++) {
+            /* printf("c: %lu %lu %d %d %li\n", idx.rshr[r], idx.cdiff[c], */
+            /*     row_sites[idx.rshr[r]], col_sites[idx.cdiff[c]], result_row - result);
+             */
+            COMPUTE(idx.cdiff[c], idx.rshr_idx[r], idx.cdiff_idx[c]);
         }
     }
 
-    for (c = 0; c < idx.n_col_diff; c++) {
-        site_a = (tsk_size_t) col_sites[idx.col_diff[c]];
-        for (r = 0; r < idx.n_row_shr; r++) {
-            site_b = (tsk_size_t) row_sites[idx.row_shr[r]];
-            COMPUTE_GENERAL_TWO_SITE_STAT(
-                site_a, site_b, idx.row_shr[r], idx.col_diff[c]);
-        }
-    }
-
+    tsk_size_t k;
     inner = 0;
-    for (r = 0; r < idx.n_row_shr; r++) {
-        site_a = (tsk_size_t) row_sites[idx.row_shr[r]];
-        for (c = inner; c < idx.n_col_shr; c++) {
-            site_b = (tsk_size_t) col_sites[idx.col_shr[c]];
-            COMPUTE_GENERAL_TWO_SITE_STAT(
-                site_a, site_b, idx.row_shr[r], idx.col_shr[c]);
-            // Reflect across axis
-            for (k = 0; k < result_dim; k++) {
-                result_tmp[k] = result_row[(idx.col_shr[c] * result_dim) + k];
-            }
-            result_row = GET_2D_ROW(result, num_site_cols * result_dim, idx.col_shr[c]);
-            for (k = 0; k < result_dim; k++) {
-                result_row[(idx.row_shr[r] * result_dim) + k] = result_tmp[k];
+    for (r = 0; r < idx.n_rshr; r++) {
+        result_row = GET_2D_ROW(result, result_row_len, idx.rshr[r]);
+        for (c = inner; c < idx.n_cshr; c++) {
+            /* printf("d: %lu %lu %d %d %li\n", idx.rshr[r], idx.cshr[c], */
+            /*     row_sites[idx.rshr[r]], col_sites[idx.cshr[c]], result_row - result);
+             */
+            COMPUTE(idx.cshr[c], idx.rshr_idx[r], idx.cshr_idx[c]);
+            // TODO: WHEN TO REFLECT???
+            if (row_sites[idx.rshr[r]] != col_sites[idx.cshr[c]]) {
+                result_row_tmp = GET_2D_ROW(result, result_row_len, idx.rshr[c]);
+                for (k = 0; k < result_dim; k++) {
+                    result_row_tmp[(idx.cshr[r] * result_dim) + k]
+                        = result_row[(idx.cshr[c] * result_dim) + k];
+                }
             }
         }
         inner++;
@@ -2655,7 +2722,7 @@ tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
 
 out:
     tsk_safe_free(num_alleles);
-    sites_matrix_iter_indices_free(&idx);
+    stat_matrix_site_indicies_free(&idx);
     tsk_bit_array_free(&allele_samples);
     return ret;
 }
