@@ -9822,7 +9822,7 @@ parse_sites(PyObject *sites, PyArrayObject **ret_row_sites,
     PyArrayObject *row_sites = NULL;
     PyArrayObject *col_sites = NULL;
     PyObject *list;
-    if (sites == NULL) {
+    if (sites == Py_None) {
         ret = 0;
         num_sites_row = 0;
         num_sites_col = 0;
