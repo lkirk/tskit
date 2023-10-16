@@ -55,6 +55,22 @@ void parse_individuals(const char *text, tsk_individual_table_t *individual_tabl
 void unsort_edges(tsk_edge_table_t *edges, size_t start);
 
 void assert_arrays_almost_equal(tsk_size_t len, double *a, double *b);
+#define ASSERT_ARRAYS_ALMOST_EQUAL(len, a, b)                                           \
+    do {                                                                                \
+        tsk_size_t j;                                                                   \
+                                                                                        \
+        for (j = 0; j < len; j++) {                                                     \
+            CU_ASSERT_DOUBLE_EQUAL(a[j], b[j], 1e-9);                                   \
+        }                                                                               \
+    } while (0)
+#define ASSERT_ARRAYS_EQUAL(len, a, b)                                                  \
+    do {                                                                                \
+        tsk_size_t j;                                                                   \
+                                                                                        \
+        for (j = 0; j < len; j++) {                                                     \
+            CU_ASSERT_EQUAL(a[j], b[j]);                                                \
+        }                                                                               \
+    } while (0)
 
 extern const char *single_tree_ex_nodes;
 extern const char *single_tree_ex_edges;

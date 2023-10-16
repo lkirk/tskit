@@ -1007,41 +1007,39 @@ int tsk_treeseq_genetic_relatedness(const tsk_treeseq_t *self,
     const tsk_id_t *index_tuples, tsk_size_t num_windows, const double *windows,
     tsk_flags_t options, double *result);
 
+typedef int two_locus_count_stat_method(const tsk_treeseq_t *self,
+    tsk_size_t num_sample_sets, const tsk_size_t *sample_set_sizes,
+    const tsk_id_t *sample_sets, tsk_size_t num_rows, const tsk_id_t *row_sites,
+    tsk_size_t num_cols, const tsk_id_t *col_sites, tsk_flags_t options, double *result);
+
 int tsk_treeseq_D(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
-    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
-    tsk_size_t num_left_windows, const double *left_windows,
-    tsk_size_t num_right_windows, const double *right_windows, tsk_flags_t options,
-    tsk_size_t *result_size, double **result);
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, tsk_size_t num_cols, const tsk_id_t *col_sites,
+    tsk_flags_t options, double *result);
 int tsk_treeseq_D2(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
-    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
-    tsk_size_t num_left_windows, const double *left_windows,
-    tsk_size_t num_right_windows, const double *right_windows, tsk_flags_t options,
-    tsk_size_t *result_size, double **result);
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, tsk_size_t num_cols, const tsk_id_t *col_sites,
+    tsk_flags_t options, double *result);
 int tsk_treeseq_r2(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
-    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
-    tsk_size_t num_left_windows, const double *left_windows,
-    tsk_size_t num_right_windows, const double *right_windows, tsk_flags_t options,
-    tsk_size_t *result_size, double **result);
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, tsk_size_t num_cols, const tsk_id_t *col_sites,
+    tsk_flags_t options, double *result);
 int tsk_treeseq_D_prime(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
-    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
-    tsk_size_t num_left_windows, const double *left_windows,
-    tsk_size_t num_right_windows, const double *right_windows, tsk_flags_t options,
-    tsk_size_t *result_size, double **result);
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, tsk_size_t num_cols, const tsk_id_t *col_sites,
+    tsk_flags_t options, double *result);
 int tsk_treeseq_r(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
-    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
-    tsk_size_t num_left_windows, const double *left_windows,
-    tsk_size_t num_right_windows, const double *right_windows, tsk_flags_t options,
-    tsk_size_t *result_size, double **result);
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, tsk_size_t num_cols, const tsk_id_t *col_sites,
+    tsk_flags_t options, double *result);
 int tsk_treeseq_Dz(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
-    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
-    tsk_size_t num_left_windows, const double *left_windows,
-    tsk_size_t num_right_windows, const double *right_windows, tsk_flags_t options,
-    tsk_size_t *result_size, double **result);
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, tsk_size_t num_cols, const tsk_id_t *col_sites,
+    tsk_flags_t options, double *result);
 int tsk_treeseq_pi2(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
-    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
-    tsk_size_t num_left_windows, const double *left_windows,
-    tsk_size_t num_right_windows, const double *right_windows, tsk_flags_t options,
-    tsk_size_t *result_size, double **result);
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, tsk_size_t num_cols, const tsk_id_t *col_sites,
+    tsk_flags_t options, double *result);
 
 /* Three way sample set stats */
 int tsk_treeseq_Y3(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
@@ -1817,6 +1815,29 @@ bool tsk_tree_position_next(tsk_tree_position_t *self);
 bool tsk_tree_position_prev(tsk_tree_position_t *self);
 int tsk_tree_position_seek_forward(tsk_tree_position_t *self, tsk_id_t index);
 int tsk_tree_position_seek_backward(tsk_tree_position_t *self, tsk_id_t index);
+
+// These are in the header for testing purposes only
+struct stat_matrix_site_indicies {
+    tsk_size_t n_sites; // Total number of sites specified
+    tsk_size_t n_shr;   // Number of sites shared between rows and columns
+    tsk_size_t n_rdiff; // Number of row sites that differ from columns
+    tsk_size_t n_cdiff; // Number of column sites that differ from rows
+
+    tsk_id_t *sites;       // Union of all site ids specified
+    tsk_size_t *rshr;      // Index of result matrix for shared row sites
+    tsk_size_t *cshr;      // Index of result matrix for shared col sites
+    tsk_size_t *rdiff;     // Index of result matrix for diff row sites
+    tsk_size_t *cdiff;     // Index of result matrix for diff colsites
+    tsk_size_t *shr_idx;   // Index of the sites array for shared sites
+    tsk_size_t *rdiff_idx; // Index of the sites array for diff row sites
+    tsk_size_t *cdiff_idx; // Index of the sites array for diff col sites
+};
+
+void stat_matrix_site_indicies_free(struct stat_matrix_site_indicies *idx);
+
+int get_stat_matrix_site_indices(tsk_size_t n_sites, tsk_size_t n_rows,
+    const tsk_id_t *row_sites, tsk_size_t n_cols, const tsk_id_t *col_sites,
+    struct stat_matrix_site_indicies *idx);
 
 #ifdef __cplusplus
 }
