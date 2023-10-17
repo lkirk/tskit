@@ -2491,7 +2491,7 @@ test_two_locus_stat_input_errors(void)
     row_sites[2] = 3;
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
         row_sites, num_sites, col_sites, 0, result);
-    CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_BAD_PARAM_VALUE);
+    CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_SITE_OUT_OF_BOUNDS);
     row_sites[2] = 2;
 
     row_sites[0] = 1;
@@ -2512,14 +2512,13 @@ test_two_site_stat_matrix_site_indices(void)
 {
     struct stat_matrix_site_indicies idx;
 
+    // All same
     tsk_id_t row_sites[] = { 0, 1, 2, 3, 4 };
     tsk_id_t col_sites[] = { 0, 1, 2, 3, 4 };
     tsk_id_t rshr[] = { 0, 1, 2, 3, 4 };
     tsk_id_t cshr[] = { 0, 1, 2, 3, 4 };
     tsk_id_t shr_idx[] = { 0, 1, 2, 3, 4 };
-
     get_stat_matrix_site_indices(5, 5, row_sites, 5, col_sites, &idx);
-
     ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.rshr, rshr);
     ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.cshr, cshr);
     ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.shr_idx, shr_idx);
@@ -2527,6 +2526,7 @@ test_two_site_stat_matrix_site_indices(void)
     CU_ASSERT_EQUAL(0, idx.n_cdiff);
     stat_matrix_site_indicies_free(&idx);
 
+    // Diff overhang on rows
     tsk_id_t row_sites_1[] = { 0, 2, 3, 4 };
     tsk_id_t col_sites_1[] = { 1, 3 };
     tsk_id_t shr_idx_1[] = { 3 };
@@ -2546,6 +2546,7 @@ test_two_site_stat_matrix_site_indices(void)
     ASSERT_ARRAYS_EQUAL(idx.n_cdiff, idx.cdiff_idx, cdiff_idx_1);
     stat_matrix_site_indicies_free(&idx);
 
+    // No common sites
     tsk_id_t row_sites_2[] = { 2, 3 };
     tsk_id_t col_sites_2[] = { 1, 4 };
     tsk_id_t rdiff_idx_2[] = { 1, 2 };
@@ -2560,6 +2561,7 @@ test_two_site_stat_matrix_site_indices(void)
     CU_ASSERT_EQUAL(0, idx.n_shr);
     stat_matrix_site_indicies_free(&idx);
 
+    // Diff overhang on columns
     tsk_id_t row_sites_3[] = { 0, 1, 2 };
     tsk_id_t col_sites_3[] = { 1, 2, 3 };
     tsk_id_t shr_idx_3[] = { 1, 2 };
