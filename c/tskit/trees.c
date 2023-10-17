@@ -2742,30 +2742,26 @@ static int
 check_sites(const tsk_id_t *sites, tsk_size_t num_sites, tsk_size_t num_site_rows)
 {
     int ret = 0;
-    tsk_id_t id;
     tsk_size_t i;
 
-    if (sites == NULL) {
-        goto out;
+    if (sites == NULL || num_sites == 0) {
+        goto out; // TODO: error? if so, what type?
     }
 
     for (i = 0; i < num_sites - 1; i++) {
-        id = sites[i];
-        if (id == TSK_NULL) {
-            ret = TSK_ERR_BAD_PARAM_VALUE; // TODO: new err type? TSK_BAD_SITE_VALUE?
+        if (sites[i] < 0 || sites[i] >= (tsk_id_t) num_site_rows) {
+            ret = TSK_ERR_SITE_OUT_OF_BOUNDS;
             goto out;
         }
-        if (id > sites[i + 1]) {
-            ret = TSK_ERR_UNSORTED_SITES; // TODO: this checks no repeats, but error is
-                                          // ambiguous
+        if (sites[i] > sites[i + 1]) {
+            // TODO: this checks no repeats, but error is ambiguous
+            ret = TSK_ERR_UNSORTED_SITES;
             goto out;
         }
     }
-    // check if the last or only value is null
-    if (num_sites != 0
-        && (sites[num_sites - 1] == TSK_NULL
-               || sites[num_sites - 1] == (tsk_id_t) num_site_rows)) {
-        ret = TSK_ERR_BAD_PARAM_VALUE; // TODO: new err type? TSK_BAD_SITE_VALUE?
+    // check the last value
+    if (sites[i] < 0 || sites[i] >= (tsk_id_t) num_site_rows) {
+        ret = TSK_ERR_SITE_OUT_OF_BOUNDS;
         goto out;
     }
 out:
