@@ -2562,9 +2562,9 @@ test_two_site_stat_matrix_site_indices(void)
     // All same
     tsk_id_t row_sites[] = { 0, 1, 2, 3, 4 };
     tsk_id_t col_sites[] = { 0, 1, 2, 3, 4 };
-    tsk_id_t rshr[] = { 0, 1, 2, 3, 4 };
-    tsk_id_t cshr[] = { 0, 1, 2, 3, 4 };
-    tsk_id_t shr_idx[] = { 0, 1, 2, 3, 4 };
+    tsk_size_t rshr[] = { 0, 1, 2, 3, 4 };
+    tsk_size_t cshr[] = { 0, 1, 2, 3, 4 };
+    tsk_size_t shr_idx[] = { 0, 1, 2, 3, 4 };
     get_stat_matrix_site_indices(5, 5, row_sites, 5, col_sites, &idx);
     ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.rshr, rshr);
     ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.cshr, cshr);
@@ -2576,13 +2576,13 @@ test_two_site_stat_matrix_site_indices(void)
     // Diff overhang on rows
     tsk_id_t row_sites_1[] = { 0, 2, 3, 4 };
     tsk_id_t col_sites_1[] = { 1, 3 };
-    tsk_id_t shr_idx_1[] = { 3 };
-    tsk_id_t rdiff_idx_1[] = { 0, 2, 4 };
-    tsk_id_t cdiff_idx_1[] = { 1 };
-    tsk_id_t rshr_1[] = { 2 };
-    tsk_id_t cshr_1[] = { 1 };
-    tsk_id_t rdiff_1[] = { 0, 1, 3 };
-    tsk_id_t cdiff_1[] = { 0 };
+    tsk_size_t shr_idx_1[] = { 3 };
+    tsk_size_t rdiff_idx_1[] = { 0, 2, 4 };
+    tsk_size_t cdiff_idx_1[] = { 1 };
+    tsk_size_t rshr_1[] = { 2 };
+    tsk_size_t cshr_1[] = { 1 };
+    tsk_size_t rdiff_1[] = { 0, 1, 3 };
+    tsk_size_t cdiff_1[] = { 0 };
     get_stat_matrix_site_indices(5, 4, row_sites_1, 2, col_sites_1, &idx);
     ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.rshr, rshr_1);
     ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.cshr, cshr_1);
@@ -2596,10 +2596,10 @@ test_two_site_stat_matrix_site_indices(void)
     // No common sites
     tsk_id_t row_sites_2[] = { 2, 3 };
     tsk_id_t col_sites_2[] = { 1, 4 };
-    tsk_id_t rdiff_idx_2[] = { 1, 2 };
-    tsk_id_t cdiff_idx_2[] = { 0, 3 };
-    tsk_id_t rdiff_2[] = { 0, 1 };
-    tsk_id_t cdiff_2[] = { 0, 1 };
+    tsk_size_t rdiff_idx_2[] = { 1, 2 };
+    tsk_size_t cdiff_idx_2[] = { 0, 3 };
+    tsk_size_t rdiff_2[] = { 0, 1 };
+    tsk_size_t cdiff_2[] = { 0, 1 };
     get_stat_matrix_site_indices(5, 2, row_sites_2, 2, col_sites_2, &idx);
     ASSERT_ARRAYS_EQUAL(idx.n_rdiff, idx.rdiff, rdiff_2);
     ASSERT_ARRAYS_EQUAL(idx.n_cdiff, idx.cdiff, cdiff_2);
@@ -2611,13 +2611,13 @@ test_two_site_stat_matrix_site_indices(void)
     // Diff overhang on columns
     tsk_id_t row_sites_3[] = { 0, 1, 2 };
     tsk_id_t col_sites_3[] = { 1, 2, 3 };
-    tsk_id_t shr_idx_3[] = { 1, 2 };
-    tsk_id_t rdiff_idx_3[] = { 0 };
-    tsk_id_t cdiff_idx_3[] = { 3 };
-    tsk_id_t rshr_3[] = { 1, 2 };
-    tsk_id_t cshr_3[] = { 0, 1 };
-    tsk_id_t rdiff_3[] = { 0 };
-    tsk_id_t cdiff_3[] = { 2 };
+    tsk_size_t shr_idx_3[] = { 1, 2 };
+    tsk_size_t rdiff_idx_3[] = { 0 };
+    tsk_size_t cdiff_idx_3[] = { 3 };
+    tsk_size_t rshr_3[] = { 1, 2 };
+    tsk_size_t cshr_3[] = { 0, 1 };
+    tsk_size_t rdiff_3[] = { 0 };
+    tsk_size_t cdiff_3[] = { 2 };
     get_stat_matrix_site_indices(5, 3, row_sites_3, 3, col_sites_3, &idx);
     ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.rshr, rshr_3);
     ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.cshr, cshr_3);
