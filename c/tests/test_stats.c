@@ -2549,6 +2549,14 @@ test_two_locus_stat_input_errors(void)
     row_sites[0] = 0;
     row_sites[1] = 1;
 
+    row_sites[0] = 1;
+    row_sites[1] = 1;
+    ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
+        row_sites, num_sites, col_sites, 0, result);
+    CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_UNSORTED_SITES);
+    row_sites[0] = 0;
+    row_sites[1] = 1;
+
     tsk_treeseq_free(&ts);
     tsk_safe_free(row_sites);
     tsk_safe_free(col_sites);
