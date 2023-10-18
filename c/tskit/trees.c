@@ -2753,7 +2753,7 @@ check_sites(const tsk_id_t *sites, tsk_size_t num_sites, tsk_size_t num_site_row
             ret = TSK_ERR_SITE_OUT_OF_BOUNDS;
             goto out;
         }
-        if (sites[i] > sites[i + 1]) {
+        if (sites[i] >= sites[i + 1]) {
             // TODO: this checks no repeats, but error is ambiguous
             ret = TSK_ERR_UNSORTED_SITES;
             goto out;
