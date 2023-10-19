@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from enum import Enum
 from itertools import permutations, combinations_with_replacement
+from typing import List
 import io
 
 import numpy as np
@@ -93,14 +94,14 @@ def compute_stat_and_weights(
 class MatrixIndex:
     n_rows: int
     n_cols: int
-    sites: list[int] = field(default_factory=list)
-    rshr: list[int] = field(default_factory=list)
-    cshr: list[int] = field(default_factory=list)
-    rdiff: list[int] = field(default_factory=list)
-    cdiff: list[int] = field(default_factory=list)
-    shr_idx: list[int] = field(default_factory=list)
-    rdiff_idx: list[int] = field(default_factory=list)
-    cdiff_idx: list[int] = field(default_factory=list)
+    sites: List[int] = field(default_factory=list)
+    rshr: List[int] = field(default_factory=list)
+    cshr: List[int] = field(default_factory=list)
+    rdiff: List[int] = field(default_factory=list)
+    cdiff: List[int] = field(default_factory=list)
+    shr_idx: List[int] = field(default_factory=list)
+    rdiff_idx: List[int] = field(default_factory=list)
+    cdiff_idx: List[int] = field(default_factory=list)
 
 
 def check_sites(sites, max_sites):
@@ -157,13 +158,6 @@ def get_matrix_indices(row_sites, col_sites):
             c += 1
 
     return idx
-
-
-# def iter_indices(idx):
-#     for r in range(len(idx.rdiff)):
-#         for c in range(len(idx.cdiff)):
-#             yield idx.rdiff[r], idx.cdiff[c], Vk
-
 
 
 def compute_two_site_general_stat(
@@ -268,7 +262,6 @@ def r2(w_AB, w_Ab, w_aB, n):
 
     if denom == 0 and D_ == 0:
         return 0.0
-        # return np.nan
 
     return (D_ * D_) / denom
 
