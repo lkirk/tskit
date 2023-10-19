@@ -1,8 +1,10 @@
-from dataclasses import dataclass, field
-from enum import Enum
-from itertools import permutations, combinations_with_replacement
-from typing import List
 import io
+from dataclasses import dataclass
+from dataclasses import field
+from enum import Enum
+from itertools import combinations_with_replacement
+from itertools import permutations
+from typing import List
 
 import numpy as np
 import pytest
@@ -183,7 +185,16 @@ def compute_two_site_general_stat(
             hap_mat, sample_sets, func, polarized, norm, print_weights
         )
         if debug:
-            print("hap_mat", hap_mat, "stats", stats, "weights", weights, "============", sep="\n")
+            print(
+                "hap_mat",
+                hap_mat,
+                "stats",
+                stats,
+                "weights",
+                weights,
+                "============",
+                sep="\n",
+            )
         return (stats * weights).sum()
 
     for i, ss in enumerate(sample_sets):
@@ -207,8 +218,10 @@ def compute_two_site_general_stat(
                 result[i, idx.rshr[r], idx.cshr[c]] = compute(
                     state[idx.shr_idx[r], ss], state[idx.shr_idx[c], ss]
                 )
-                if (idx.sites[idx.shr_idx[r]] != idx.sites[idx.shr_idx[c]]):
-                    result[i, idx.rshr[c], idx.cshr[r]] = result[i, idx.rshr[r], idx.cshr[c]] 
+                if idx.sites[idx.shr_idx[r]] != idx.sites[idx.shr_idx[c]]:
+                    result[i, idx.rshr[c], idx.cshr[r]] = result[
+                        i, idx.rshr[r], idx.cshr[c]
+                    ]
 
     return result
 
@@ -229,11 +242,12 @@ def two_site_general_stat(
         sites = [np.arange(ts.num_sites), np.arange(ts.num_sites)]
     else:
         if len(sites) != 2:
-            raise ValueError(f"Sites must be a length 2 list, got a length {len(sites)} list")
+            raise ValueError(
+                f"Sites must be a length 2 list, got a length {len(sites)} list"
+            )
         sites[0] = np.asarray(sites[0])
         sites[1] = np.asarray(sites[1])
 
-    
     row_sites, col_sites = sites
     check_sites(row_sites, ts.num_sites)
     check_sites(col_sites, ts.num_sites)
@@ -242,7 +256,14 @@ def two_site_general_stat(
     state = get_state(ts, idx)
 
     result = compute_two_site_general_stat(
-        state, summary_func, polarized, norm_method, sample_sets, idx, debug, print_weights
+        state,
+        summary_func,
+        polarized,
+        norm_method,
+        sample_sets,
+        idx,
+        debug,
+        print_weights,
     )
     if len(sample_sets) == 1:
         return result.reshape(result.shape[1:3])
@@ -264,7 +285,6 @@ def r2(w_AB, w_Ab, w_aB, n):
         return 0.0
 
     return (D_ * D_) / denom
-
 
 
 def get_paper_ex_ts():
@@ -325,10 +345,8 @@ def get_paper_ex_ts():
     )
 
 
-TS_LD_MATRIX = np.array(
-    [[1.0,        0.11111111, 0.11111111],
-     [0.11111111, 1.0,        1.0],
-     [0.11111111, 1.0,        1.0]]
+PAPER_EX_TRUTH_MATRIX = np.array(
+    [[1.0, 0.11111111, 0.11111111], [0.11111111, 1.0, 1.0], [0.11111111, 1.0, 1.0]]
 )
 
 
@@ -337,8 +355,8 @@ def get_all_site_partitions(n):
     TODO: only works for square matricies
     """
     parts = []
-    for l in tskit.combinatorics.rule_asc(3):
-        for g in set(permutations(l, len(l))):
+    for part in tskit.combinatorics.rule_asc(3):
+        for g in set(permutations(part, len(part))):
             p = []
             i = iter(range(n))
             for item in g:
@@ -356,14 +374,17 @@ def assert_slice_allclose(a, b):
     ts = get_paper_ex_ts()
     np.testing.assert_allclose(
         two_site_general_stat(ts, r2, "hap_weighted", polarized=False, sites=[a, b]),
-        TS_LD_MATRIX[a[0]: a[-1] + 1, b[0]: b[-1] + 1]
+        PAPER_EX_TRUTH_MATRIX[a[0] : a[-1] + 1, b[0] : b[-1] + 1],
     )
 
 
-@pytest.mark.parametrize("partition", get_all_site_partitions(len(TS_LD_MATRIX)))
+@pytest.mark.parametrize(
+    "partition", get_all_site_partitions(len(PAPER_EX_TRUTH_MATRIX))
+)
 def test_all_subsets(partition):
     a, b = partition
     print(a, b)
     assert_slice_allclose(a, b)
+
 
 # two_site_general_stat(get_paper_ex_ts(), r2, 'hap_weighted', polarized=False, sites=[[1], [1, 2]])
