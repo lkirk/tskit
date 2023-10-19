@@ -17,8 +17,10 @@ class NormMethod(Enum):
     Method for norming the output statistic
 
     TOTAL: Divide the statistic by the total number of haplotypes
-    HAP_WEIGHTED: Weight each allele's statistic by the proportion of the haplotype present
-    AF_WEIGHTED: Weight each allele's statistic by the product of the allele frequencies
+    HAP_WEIGHTED: Weight each allele's statistic by the proportion
+                  of the haplotype present
+    AF_WEIGHTED: Weight each allele's statistic by the product of
+                 the allele frequencies
     """
 
     TOTAL = "total"
@@ -288,7 +290,8 @@ def r2(w_AB, w_Ab, w_aB, n):
 
 
 def get_paper_ex_ts():
-    # Data taken from the tests: https://github.com/tskit-dev/tskit/blob/61a844a/c/tests/testlib.c#L55-L96
+    # Data taken from the tests:
+    # https://github.com/tskit-dev/tskit/blob/61a844a/c/tests/testlib.c#L55-L96
 
     nodes = """\
     is_sample time population individual
@@ -387,4 +390,6 @@ def test_all_subsets(partition):
     assert_slice_allclose(a, b)
 
 
-# two_site_general_stat(get_paper_ex_ts(), r2, 'hap_weighted', polarized=False, sites=[[1], [1, 2]])
+# two_site_general_stat(
+#     get_paper_ex_ts(), r2, 'hap_weighted', polarized=False, sites=[[1], [1, 2]]
+# )
