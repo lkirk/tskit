@@ -28,12 +28,22 @@ class NormMethod(Enum):
     AF_WEIGHTED = "af_weighted"
 
 
-def get_state(ts, idx):
-    state = np.zeros((len(idx.sites), ts.num_samples), dtype=int)
+def get_state(ts, sites):
+    """Walk along the tree sequence, visiting all of the specified
+    sites, and store the final sample allele state in an entry of
+    a 2d numpy array. We enumerate all allele states in a site, and
+    store the enumerated state for the sample.
+
+    :param ts: Tree sequence to gather data from
+    :param sites: List of sites to gather data for
+    :returns: 2d numpy array containing the final allelic state
+              for all samples and sites in the index.
+    """
+    state = np.zeros((len(sites), ts.num_samples), dtype=int)
     current_site = 0
     for tree in ts.trees():
         for site in tree.sites():
-            if site.id in idx.sites:
+            if site.id in sites:
                 states = [site.ancestral_state]
                 current_state = 0
                 for mutation in site.mutations:
@@ -53,12 +63,26 @@ def get_state(ts, idx):
 
 def compute_stat_and_weights(
     hap_mat,
-    sample_sets,
     summary_func,
     polarized,
     norm_method,
     print_weights,
 ):
+    """Given a haplotype matrix, compute the haplotype frequencies, then
+    compute the statistic and its corresponding normalizing constants.
+
+    :param hap_mat: Haplotype matrix, containing counts of haplotypes.
+    :param summary_func: The function that will produce our statistic.
+    :param polarized: If true, skip the computation of the statistic for the
+                      ancestral state.
+    :param norm_method: Method of producing the normalizing constants (see the
+                        docstring for the NormMethod enum).
+    :param print_weights: Debugging tool for printing out the computed haplotype
+                          frequencies.
+    :returns: Tuple of the stats and their corresponding normalizing constants.
+              Stats and normalizing constants will have the same shape as the
+              haplotype matrix.
+    """
     hap_mat = np.asarray(hap_mat)
 
     # number of samples
@@ -70,10 +94,12 @@ def compute_stat_and_weights(
     stats = np.zeros(hap_mat.shape)
     for a_idx in range(1 if polarized else 0, n_a):
         for b_idx in range(1 if polarized else 0, n_b):
+            # compute haplotype weights
             w_AB = hap_mat[a_idx, b_idx]
             w_Ab = hap_mat[a_idx, :].sum() - w_AB
             w_aB = hap_mat[:, b_idx].sum() - w_AB
 
+            # compute stat
             stats[a_idx, b_idx] = summary_func(w_AB, w_Ab, w_aB, n)
 
             if print_weights:
@@ -95,20 +121,46 @@ def compute_stat_and_weights(
 
 
 @dataclass
-class MatrixIndex:
-    n_rows: int
-    n_cols: int
+class SiteMatrixIndex:
+    """
+    This object stores index values for the output result matrix and
+    for the sites array (stored on this object).
+
+    For each index array, we store information for sites that are shared
+    between rows and columns, and sites that differ between rows and columns.
+    """
+
+    n_rows: int  # number of row sites
+    n_cols: int  # number of column sites
+    # Union of row/column sites (in order)
     sites: List[int] = field(default_factory=list)
-    rshr: List[int] = field(default_factory=list)
-    cshr: List[int] = field(default_factory=list)
-    rdiff: List[int] = field(default_factory=list)
-    cdiff: List[int] = field(default_factory=list)
-    shr_idx: List[int] = field(default_factory=list)
-    rdiff_idx: List[int] = field(default_factory=list)
-    cdiff_idx: List[int] = field(default_factory=list)
+    # Result matrix indices for shared/diff between rows/columns
+    rshr_matrix: List[int] = field(default_factory=list)
+    cshr_matrix: List[int] = field(default_factory=list)
+    rdiff_matrix: List[int] = field(default_factory=list)
+    cdiff_matrix: List[int] = field(default_factory=list)
+    # Index into the sites array on this object for rows/columns/shared
+    # This index also maps to the data gathered by get_state. (Important!!)
+    shr_sites: List[int] = field(default_factory=list)
+    rdiff_sites: List[int] = field(default_factory=list)
+    cdiff_sites: List[int] = field(default_factory=list)
 
 
 def check_sites(sites, max_sites):
+    """Validate the specified site ids.
+
+    We require that sites are:
+
+    1) Within the boundaries of available sites in the tree sequence
+    2) Sorted
+    3) Non-repeating
+
+    Raises an exception if any error is found.
+
+    :param sites: 1d array of sites to validate
+    :param max_sites: Number of sites in the tree sequence, the upper
+                      bound value for site ids.
+    """
     if sites is None or len(sites) == 0:
         raise ValueError("No sites provided")
     i = 0
@@ -122,42 +174,65 @@ def check_sites(sites, max_sites):
 
 
 def get_matrix_indices(row_sites, col_sites):
+    """Index two lists of sites and return an index object. To do this
+    efficiently, we store an index into the row list and column list,
+    advancing one if the last encountered value of one is smaller than the
+    other. If the last encountered values of both arrays are equal, we
+    advance the index for both arrays.
+
+    During this process, we store a sorted union of site values and keep
+    track of the number of rows and column site ids that will eventually
+    dictate the result matrix dimensions.
+
+    This routine requires that the site lists are sorted and deduplicated.
+
+    :param row_sites: List of sites that will be represented in the output
+                      matrix rows
+    :param col_sites: List of sites that will be represented in the output
+                      matrix columns
+    :returns: Index object containing indices for the site ids/result matrix/
+              state matrix.
+    """
     r = 0
     c = 0
     s = 0
-    idx = MatrixIndex(len(row_sites), len(col_sites))
+    idx = SiteMatrixIndex(len(row_sites), len(col_sites))
 
     while r < len(row_sites) and c < len(col_sites):
         if row_sites[r] < col_sites[c]:
-            idx.rdiff_idx.append(s)
-            idx.rdiff.append(r)
+            idx.rdiff_sites.append(s)
+            idx.rdiff_matrix.append(r)
             idx.sites.append(row_sites[r])
             r += 1
             s += 1
         elif col_sites[c] < row_sites[r]:
-            idx.cdiff_idx.append(s)
-            idx.cdiff.append(c)
+            idx.cdiff_sites.append(s)
+            idx.cdiff_matrix.append(c)
             idx.sites.append(col_sites[c])
             c += 1
             s += 1
         else:
-            idx.rshr.append(r)
-            idx.cshr.append(c)
-            idx.shr_idx.append(s)
+            idx.rshr_matrix.append(r)
+            idx.cshr_matrix.append(c)
+            idx.shr_sites.append(s)
             idx.sites.append(row_sites[r])
             r += 1
             c += 1
             s += 1
+
+    # Once we've hit the end of one (or both) of the row/column arrays,
+    # check to see if there are any remaining items in any of the lists.
+    # If there are, account for the remaining values.
     if r < len(row_sites):
         while r < len(row_sites):
-            idx.rdiff.append(r)
-            idx.rdiff_idx.append(s)
+            idx.rdiff_matrix.append(r)
+            idx.rdiff_sites.append(s)
             idx.sites.append(row_sites[r])
             r += 1
     if c < len(col_sites):
         while c < len(col_sites):
-            idx.cdiff.append(c)
-            idx.cdiff_idx.append(s)
+            idx.cdiff_matrix.append(c)
+            idx.cdiff_sites.append(s)
             idx.sites.append(col_sites[c])
             c += 1
 
@@ -174,6 +249,26 @@ def compute_two_site_general_stat(
     debug=False,
     print_weights=False,
 ):
+    """Compute the ld matrix, given the sample allele state, various parameters,
+    and a site index.
+
+    :param state: State matrix containing the allelic state for each sample
+    :param func: Summary function to apply to the haplotype weights
+    :param polarized: If true, skip the computation of the statistic for the
+                      ancestral state.
+    :param norm_method: Method of producing the normalizing constants (see the
+                        docstring for the NormMethod enum).
+    :param sample_sets: List of lists of samples to compute stats for. We will
+                        only produce haplotype matricies that contain these
+                        samples, resulting in stats that are computed on subsets
+                        of the total number of samples on the tree sequence.
+    :param idx: Site index, storing indices for the state matrix, result matrix,
+                and site ids.
+    :param debug: If true, print the haplotype matrix and normalizing constants
+    :param print_weights: Debugging tool for printing out the computed haplotype
+                          frequencies.
+    :returns: 3d numpy array containing LD for (sample_set,row_site,column_site)
+    """
     state = np.asarray(state)
     norm = NormMethod(norm_method)
 
@@ -181,10 +276,11 @@ def compute_two_site_general_stat(
 
     def compute(left_states, right_states):
         hap_mat = np.zeros((np.max(left_states) + 1, np.max(right_states) + 1))
+        # compute the haplotype matrix
         for A_i, B_i in zip(left_states, right_states):
             hap_mat[A_i, B_i] += 1
         stats, weights = compute_stat_and_weights(
-            hap_mat, sample_sets, func, polarized, norm, print_weights
+            hap_mat, func, polarized, norm, print_weights
         )
         if debug:
             print(
@@ -197,32 +293,37 @@ def compute_two_site_general_stat(
                 "============",
                 sep="\n",
             )
+        # reduce the LD stats for each allele state into a scalar for the focal
+        # pair of sites.
         return (stats * weights).sum()
 
     for i, ss in enumerate(sample_sets):
-        for r in range(len(idx.rdiff)):
-            for c in range(len(idx.cdiff)):
-                result[i, idx.rdiff[r], idx.cdiff[c]] = compute(
-                    state[idx.rdiff_idx[r], ss], state[idx.cdiff_idx[c], ss]
+        # Fill in matrix entries that do not cross the diagonal (no reflection)
+        for r in range(len(idx.rdiff_matrix)):
+            for c in range(len(idx.cdiff_matrix)):
+                result[i, idx.rdiff_matrix[r], idx.cdiff_matrix[c]] = compute(
+                    state[idx.rdiff_sites[r], ss], state[idx.cdiff_sites[c], ss]
                 )
-            for c in range(len(idx.shr_idx)):
-                result[i, idx.rdiff[r], idx.cshr[c]] = compute(
-                    state[idx.rdiff_idx[r], ss], state[idx.shr_idx[c], ss]
+            for c in range(len(idx.shr_sites)):
+                result[i, idx.rdiff_matrix[r], idx.cshr_matrix[c]] = compute(
+                    state[idx.rdiff_sites[r], ss], state[idx.shr_sites[c], ss]
                 )
-        for r in range(len(idx.shr_idx)):
-            for c in range(len(idx.cdiff)):
-                result[i, idx.rshr[r], idx.cdiff[c]] = compute(
-                    state[idx.shr_idx[r], ss], state[idx.cdiff_idx[c], ss]
+        for r in range(len(idx.shr_sites)):
+            for c in range(len(idx.cdiff_matrix)):
+                result[i, idx.rshr_matrix[r], idx.cdiff_matrix[c]] = compute(
+                    state[idx.shr_sites[r], ss], state[idx.cdiff_sites[c], ss]
                 )
+        # Fill in entries that cross the diagonal of the LD matrix, reflecting
+        # them across the diagonal instead of computing them twice.
         inner = 0
-        for r in range(len(idx.shr_idx)):
-            for c in range(inner, len(idx.shr_idx)):
-                result[i, idx.rshr[r], idx.cshr[c]] = compute(
-                    state[idx.shr_idx[r], ss], state[idx.shr_idx[c], ss]
+        for r in range(len(idx.shr_sites)):
+            for c in range(inner, len(idx.shr_sites)):
+                result[i, idx.rshr_matrix[r], idx.cshr_matrix[c]] = compute(
+                    state[idx.shr_sites[r], ss], state[idx.shr_sites[c], ss]
                 )
-                if idx.sites[idx.shr_idx[r]] != idx.sites[idx.shr_idx[c]]:
-                    result[i, idx.rshr[c], idx.cshr[r]] = result[
-                        i, idx.rshr[r], idx.cshr[c]
+                if idx.sites[idx.shr_sites[r]] != idx.sites[idx.shr_sites[c]]:
+                    result[i, idx.rshr_matrix[c], idx.cshr_matrix[r]] = result[
+                        i, idx.rshr_matrix[r], idx.cshr_matrix[c]
                     ]
 
     return result
@@ -238,6 +339,28 @@ def two_site_general_stat(
     debug=False,
     print_weights=False,
 ):
+    """Outer wrapper for two site general stat functionality. Perform some input
+    validation, get the site index and allele state, then compute the LD matrix.
+
+    :param ts: Tree sequence to compute LD from.
+    :param summary_func: The function that will produce our statistic.
+    :param norm_method: Method of producing the normalizing constants (see the
+                        docstring for the NormMethod enum).
+    :param polarized: If true, skip the computation of the statistic for the
+                      ancestral state.
+    :param sites: List of two lists containing [row_sites, column_sites]
+    :param sample_sets: List of lists of samples to compute stats for. We will
+                        only produce haplotype matricies that contain these
+                        samples, resulting in stats that are computed on subsets
+                        of the total number of samples on the tree sequence.
+    :param debug: If true, print the haplotype matrix and normalizing constants
+    :param print_weights: Debugging tool for printing out the computed haplotype
+                          frequencies.
+    :returns: 3d numpy array containing LD for (sample_set,row_site,column_site)
+              unless one or no sample sets are specified, then 2d array
+              containing LD for (row_site,column_site)
+
+    """
     if sample_sets is None:
         sample_sets = [ts.samples()]
     if sites is None:
@@ -255,7 +378,7 @@ def two_site_general_stat(
     check_sites(col_sites, ts.num_sites)
     idx = get_matrix_indices(row_sites, col_sites)
 
-    state = get_state(ts, idx)
+    state = get_state(ts, idx.sites)
 
     result = compute_two_site_general_stat(
         state,
@@ -267,12 +390,23 @@ def two_site_general_stat(
         debug,
         print_weights,
     )
+    # If there is one sample set, return a 2d numpy array of row/site LD
     if len(sample_sets) == 1:
         return result.reshape(result.shape[1:3])
     return result
 
 
 def r2(w_AB, w_Ab, w_aB, n):
+    """Summary function for the r2 statistic
+
+    :param w_AB: Number of haplotypes containing both derived states
+    :param w_Ab: Number of haplotypes containing derived on left locus and
+                 ancestral on the right locus
+    :param w_aB: Number of haplotypes containing ancestral on the left locus
+                 and derived on the right locus
+    :param n: Total number of samples
+    :returns: r2 for the given haplotype frequencies
+    """
     p_AB = w_AB / float(n)
     p_Ab = w_Ab / float(n)
     p_aB = w_aB / float(n)
@@ -290,8 +424,14 @@ def r2(w_AB, w_Ab, w_aB, n):
 
 
 def get_paper_ex_ts():
-    # Data taken from the tests:
-    # https://github.com/tskit-dev/tskit/blob/61a844a/c/tests/testlib.c#L55-L96
+    """Generate the tree sequence example from the tskit paper
+
+    Data taken from the tests:
+    https://github.com/tskit-dev/tskit/blob/61a844a/c/tests/testlib.c#L55-L96
+
+    :returns: Tree sequence
+
+    """
 
     nodes = """\
     is_sample time population individual
@@ -348,14 +488,22 @@ def get_paper_ex_ts():
     )
 
 
+# true r2 values for the tree sequence from the tskit paper
 PAPER_EX_TRUTH_MATRIX = np.array(
     [[1.0, 0.11111111, 0.11111111], [0.11111111, 1.0, 1.0], [0.11111111, 1.0, 1.0]]
 )
 
 
 def get_all_site_partitions(n):
-    """
-    TODO: only works for square matricies
+    """Generate all partitions for square matricies, then combine with replacement
+    and return all possible pairs of all partitions.
+
+    TODO: only works for square matricies, would need to generate two lists of
+    partitions to get around this
+
+    :param n: length of one dimension of the !square! matrix
+    :returns: combinations of partitions
+
     """
     parts = []
     for part in tskit.combinatorics.rule_asc(3):
@@ -374,6 +522,14 @@ def get_all_site_partitions(n):
 
 
 def assert_slice_allclose(a, b):
+    """Provide two lists of sites to the general stat function, then check to
+    see if the subset matches the slice out of the truth matrix. Raise if
+    arrays not close.
+
+    :param a: row sites
+    :param b: column sites
+
+    """
     ts = get_paper_ex_ts()
     np.testing.assert_allclose(
         two_site_general_stat(ts, r2, "hap_weighted", polarized=False, sites=[a, b]),
@@ -382,9 +538,19 @@ def assert_slice_allclose(a, b):
 
 
 @pytest.mark.parametrize(
-    "partition", get_all_site_partitions(len(PAPER_EX_TRUTH_MATRIX))
+    # Generate all partitions of the LD matrix that, then pass into test_subset
+    "partition",
+    get_all_site_partitions(len(PAPER_EX_TRUTH_MATRIX)),
 )
-def test_all_subsets(partition):
+def test_subset(partition):
+    """Given a partition of the truth matrix, check that we can successfully
+    compute the LD matrix for that given partition, effectively ensuring that
+    our handling of site subsets is correct.
+
+    :param partition: length 2 list of [row_sites, column_sites]. This is a
+                      pytest fixture for a parametrized function.
+
+    """
     a, b = partition
     print(a, b)
     assert_slice_allclose(a, b)
