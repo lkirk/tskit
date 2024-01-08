@@ -62,16 +62,16 @@ def get_state(ts, sites):
 
 
 def compute_stat_and_weights(
-    hap_mat,
+    hap_counts,
     summary_func,
     polarized,
     norm_method,
     print_weights,
 ):
-    """Given a haplotype matrix, compute the haplotype frequencies, then
-    compute the statistic and its corresponding normalizing constants.
+    """Given a matrix of haplotype counts, compute the haplotype frequencies,
+    then compute the statistic and its corresponding normalizing constants.
 
-    :param hap_mat: Haplotype matrix, containing counts of haplotypes.
+    :param hap_counts: Matrix containing counts of haplotypes.
     :param summary_func: The function that will produce our statistic.
     :param polarized: If true, skip the computation of the statistic for the
                       ancestral state.
@@ -83,21 +83,21 @@ def compute_stat_and_weights(
               Stats and normalizing constants will have the same shape as the
               haplotype matrix.
     """
-    hap_mat = np.asarray(hap_mat)
+    hap_counts = np.asarray(hap_counts)
 
     # number of samples
-    n = hap_mat.sum()
+    n = hap_counts.sum()
     # number of B alleles, number of A alleles
-    n_a, n_b = hap_mat.shape
+    n_a, n_b = hap_counts.shape
 
-    weights = np.zeros(hap_mat.shape)
-    stats = np.zeros(hap_mat.shape)
+    weights = np.zeros(hap_counts.shape)
+    stats = np.zeros(hap_counts.shape)
     for a_idx in range(1 if polarized else 0, n_a):
         for b_idx in range(1 if polarized else 0, n_b):
             # compute haplotype weights
-            w_AB = hap_mat[a_idx, b_idx]
-            w_Ab = hap_mat[a_idx, :].sum() - w_AB
-            w_aB = hap_mat[:, b_idx].sum() - w_AB
+            w_AB = hap_counts[a_idx, b_idx]
+            w_Ab = hap_counts[a_idx, :].sum() - w_AB
+            w_aB = hap_counts[:, b_idx].sum() - w_AB
 
             # compute stat
             stats[a_idx, b_idx] = summary_func(w_AB, w_Ab, w_aB, n)
@@ -106,11 +106,11 @@ def compute_stat_and_weights(
                 print(a_idx, b_idx, int(w_AB), int(w_Ab), int(w_aB), int(n), sep="\t")
             # create weights matrix
             if norm_method is NormMethod.HAP_WEIGHTED:
-                hap_freq = hap_mat / n
+                hap_freq = hap_counts / n
                 weights[a_idx, b_idx] = hap_freq[a_idx, b_idx]
             elif norm_method is NormMethod.AF_WEIGHTED:
-                p_a = hap_mat.sum(1) / n
-                p_b = hap_mat.sum(0) / n
+                p_a = hap_counts.sum(1) / n
+                p_b = hap_counts.sum(0) / n
                 weights[a_idx, b_idx] = p_a[a_idx] * p_b[b_idx]
             elif norm_method is NormMethod.TOTAL:
                 weights[a_idx, b_idx] = 1 / (
@@ -223,18 +223,16 @@ def get_matrix_indices(row_sites, col_sites):
     # Once we've hit the end of one (or both) of the row/column arrays,
     # check to see if there are any remaining items in any of the lists.
     # If there are, account for the remaining values.
-    if r < len(row_sites):
-        while r < len(row_sites):
-            idx.rdiff_matrix.append(r)
-            idx.rdiff_sites.append(s)
-            idx.sites.append(row_sites[r])
-            r += 1
-    if c < len(col_sites):
-        while c < len(col_sites):
-            idx.cdiff_matrix.append(c)
-            idx.cdiff_sites.append(s)
-            idx.sites.append(col_sites[c])
-            c += 1
+    while r < len(row_sites):
+        idx.rdiff_matrix.append(r)
+        idx.rdiff_sites.append(s)
+        idx.sites.append(row_sites[r])
+        r += 1
+    while c < len(col_sites):
+        idx.cdiff_matrix.append(c)
+        idx.cdiff_sites.append(s)
+        idx.sites.append(col_sites[c])
+        c += 1
 
     return idx
 
@@ -275,17 +273,17 @@ def compute_two_site_general_stat(
     result = np.zeros((len(sample_sets), idx.n_rows, idx.n_cols))
 
     def compute(left_states, right_states):
-        hap_mat = np.zeros((np.max(left_states) + 1, np.max(right_states) + 1))
+        hap_counts = np.zeros((np.max(left_states) + 1, np.max(right_states) + 1))
         # compute the haplotype matrix
         for A_i, B_i in zip(left_states, right_states):
-            hap_mat[A_i, B_i] += 1
+            hap_counts[A_i, B_i] += 1
         stats, weights = compute_stat_and_weights(
-            hap_mat, func, polarized, norm, print_weights
+            hap_counts, func, polarized, norm, print_weights
         )
         if debug:
             print(
-                "hap_mat",
-                hap_mat,
+                "hap_counts",
+                hap_counts,
                 "stats",
                 stats,
                 "weights",
