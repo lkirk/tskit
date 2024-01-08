@@ -2391,6 +2391,7 @@ get_stat_matrix_site_indices(tsk_size_t n_sites, tsk_size_t n_rows,
         goto out;
     }
 
+    // Iterate rows and columns until we've exhaused one of the lists
     while ((r < n_rows) && (c < n_cols)) {
         if (row_sites[r] < col_sites[c]) {
             rdiff_idx[n_rdiff] = s;
@@ -2417,24 +2418,23 @@ get_stat_matrix_site_indices(tsk_size_t n_sites, tsk_size_t n_rows,
             c++;
         }
     }
-    if (r < n_rows) {
-        while (r < n_rows) {
-            rdiff[n_rdiff] = r;
-            rdiff_idx[n_rdiff] = s;
-            sites[s] = row_sites[r];
-            n_rdiff++;
-            s++;
-            r++;
-        }
-    } else if (c < n_cols) {
-        while (c < n_cols) {
-            cdiff[n_cdiff] = c;
-            cdiff_idx[n_cdiff] = s;
-            sites[s] = col_sites[c];
-            n_cdiff++;
-            s++;
-            c++;
-        }
+
+    // If there are any items remaining in the other list, drain it
+    while (r < n_rows) {
+        rdiff[n_rdiff] = r;
+        rdiff_idx[n_rdiff] = s;
+        sites[s] = row_sites[r];
+        n_rdiff++;
+        s++;
+        r++;
+    }
+    while (c < n_cols) {
+        cdiff[n_cdiff] = c;
+        cdiff_idx[n_cdiff] = s;
+        sites[s] = col_sites[c];
+        n_cdiff++;
+        s++;
+        c++;
     }
 
     idx->n_sites = s;
