@@ -1862,14 +1862,14 @@ struct stat_matrix_site_indicies {
     tsk_size_t n_rdiff; // Number of row sites that differ from columns
     tsk_size_t n_cdiff; // Number of column sites that differ from rows
 
-    tsk_id_t *sites;       // Union of all site ids specified
-    tsk_size_t *rshr;      // Index of result matrix for shared row sites
-    tsk_size_t *cshr;      // Index of result matrix for shared col sites
-    tsk_size_t *rdiff;     // Index of result matrix for diff row sites
-    tsk_size_t *cdiff;     // Index of result matrix for diff colsites
-    tsk_size_t *shr_idx;   // Index of the sites array for shared sites
-    tsk_size_t *rdiff_idx; // Index of the sites array for diff row sites
-    tsk_size_t *cdiff_idx; // Index of the sites array for diff col sites
+    tsk_id_t *sites;          // Union of all site ids specified
+    tsk_size_t *rshr_matrix;  // Index of result matrix for shared row sites
+    tsk_size_t *cshr_matrix;  // Index of result matrix for shared col sites
+    tsk_size_t *rdiff_matrix; // Index of result matrix for diff row sites
+    tsk_size_t *cdiff_matrix; // Index of result matrix for diff colsites
+    tsk_size_t *shr_sites;    // Index of the sites array for shared sites
+    tsk_size_t *rdiff_sites;  // Index of the sites array for diff row sites
+    tsk_size_t *cdiff_sites;  // Index of the sites array for diff col sites
 };
 
 void stat_matrix_site_indicies_free(struct stat_matrix_site_indicies *idx);

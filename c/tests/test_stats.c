@@ -2574,9 +2574,9 @@ test_two_site_stat_matrix_site_indices(void)
     tsk_size_t cshr[] = { 0, 1, 2, 3, 4 };
     tsk_size_t shr_idx[] = { 0, 1, 2, 3, 4 };
     get_stat_matrix_site_indices(5, 5, row_sites, 5, col_sites, &idx);
-    ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.rshr, rshr);
-    ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.cshr, cshr);
-    ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.shr_idx, shr_idx);
+    ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.rshr_matrix, rshr);
+    ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.cshr_matrix, cshr);
+    ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.shr_sites, shr_idx);
     CU_ASSERT_EQUAL(0, idx.n_rdiff);
     CU_ASSERT_EQUAL(0, idx.n_cdiff);
     stat_matrix_site_indicies_free(&idx);
@@ -2592,13 +2592,13 @@ test_two_site_stat_matrix_site_indices(void)
     tsk_size_t rdiff_1[] = { 0, 1, 3 };
     tsk_size_t cdiff_1[] = { 0 };
     get_stat_matrix_site_indices(5, 4, row_sites_1, 2, col_sites_1, &idx);
-    ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.rshr, rshr_1);
-    ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.cshr, cshr_1);
-    ASSERT_ARRAYS_EQUAL(idx.n_rdiff, idx.rdiff, rdiff_1);
-    ASSERT_ARRAYS_EQUAL(idx.n_cdiff, idx.cdiff, cdiff_1);
-    ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.shr_idx, shr_idx_1);
-    ASSERT_ARRAYS_EQUAL(idx.n_rdiff, idx.rdiff_idx, rdiff_idx_1);
-    ASSERT_ARRAYS_EQUAL(idx.n_cdiff, idx.cdiff_idx, cdiff_idx_1);
+    ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.rshr_matrix, rshr_1);
+    ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.cshr_matrix, cshr_1);
+    ASSERT_ARRAYS_EQUAL(idx.n_rdiff, idx.rdiff_matrix, rdiff_1);
+    ASSERT_ARRAYS_EQUAL(idx.n_cdiff, idx.cdiff_matrix, cdiff_1);
+    ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.shr_sites, shr_idx_1);
+    ASSERT_ARRAYS_EQUAL(idx.n_rdiff, idx.rdiff_sites, rdiff_idx_1);
+    ASSERT_ARRAYS_EQUAL(idx.n_cdiff, idx.cdiff_sites, cdiff_idx_1);
     stat_matrix_site_indicies_free(&idx);
 
     // No common sites
@@ -2609,10 +2609,10 @@ test_two_site_stat_matrix_site_indices(void)
     tsk_size_t rdiff_2[] = { 0, 1 };
     tsk_size_t cdiff_2[] = { 0, 1 };
     get_stat_matrix_site_indices(5, 2, row_sites_2, 2, col_sites_2, &idx);
-    ASSERT_ARRAYS_EQUAL(idx.n_rdiff, idx.rdiff, rdiff_2);
-    ASSERT_ARRAYS_EQUAL(idx.n_cdiff, idx.cdiff, cdiff_2);
-    ASSERT_ARRAYS_EQUAL(idx.n_rdiff, idx.rdiff_idx, rdiff_idx_2);
-    ASSERT_ARRAYS_EQUAL(idx.n_cdiff, idx.cdiff_idx, cdiff_idx_2);
+    ASSERT_ARRAYS_EQUAL(idx.n_rdiff, idx.rdiff_matrix, rdiff_2);
+    ASSERT_ARRAYS_EQUAL(idx.n_cdiff, idx.cdiff_matrix, cdiff_2);
+    ASSERT_ARRAYS_EQUAL(idx.n_rdiff, idx.rdiff_sites, rdiff_idx_2);
+    ASSERT_ARRAYS_EQUAL(idx.n_cdiff, idx.cdiff_sites, cdiff_idx_2);
     CU_ASSERT_EQUAL(0, idx.n_shr);
     stat_matrix_site_indicies_free(&idx);
 
@@ -2627,13 +2627,13 @@ test_two_site_stat_matrix_site_indices(void)
     tsk_size_t rdiff_3[] = { 0 };
     tsk_size_t cdiff_3[] = { 2 };
     get_stat_matrix_site_indices(5, 3, row_sites_3, 3, col_sites_3, &idx);
-    ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.rshr, rshr_3);
-    ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.cshr, cshr_3);
-    ASSERT_ARRAYS_EQUAL(idx.n_rdiff, idx.rdiff, rdiff_3);
-    ASSERT_ARRAYS_EQUAL(idx.n_cdiff, idx.cdiff, cdiff_3);
-    ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.shr_idx, shr_idx_3);
-    ASSERT_ARRAYS_EQUAL(idx.n_rdiff, idx.rdiff_idx, rdiff_idx_3);
-    ASSERT_ARRAYS_EQUAL(idx.n_cdiff, idx.cdiff_idx, cdiff_idx_3);
+    ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.rshr_matrix, rshr_3);
+    ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.cshr_matrix, cshr_3);
+    ASSERT_ARRAYS_EQUAL(idx.n_rdiff, idx.rdiff_matrix, rdiff_3);
+    ASSERT_ARRAYS_EQUAL(idx.n_cdiff, idx.cdiff_matrix, cdiff_3);
+    ASSERT_ARRAYS_EQUAL(idx.n_shr, idx.shr_sites, shr_idx_3);
+    ASSERT_ARRAYS_EQUAL(idx.n_rdiff, idx.rdiff_sites, rdiff_idx_3);
+    ASSERT_ARRAYS_EQUAL(idx.n_cdiff, idx.cdiff_sites, cdiff_idx_3);
     stat_matrix_site_indicies_free(&idx);
 }
 

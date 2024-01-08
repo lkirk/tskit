@@ -2359,38 +2359,13 @@ void
 stat_matrix_site_indicies_free(struct stat_matrix_site_indicies *idx)
 {
     tsk_safe_free(idx->sites);
-    tsk_safe_free(idx->rshr);
-    tsk_safe_free(idx->cshr);
-    tsk_safe_free(idx->rdiff);
-    tsk_safe_free(idx->cdiff);
-    tsk_safe_free(idx->shr_idx);
-    tsk_safe_free(idx->rdiff_idx);
-    tsk_safe_free(idx->cdiff_idx);
-}
-
-static int
-realloc_and_set(tsk_size_t orig_size, tsk_size_t n, tsk_size_t *in, tsk_size_t **out)
-{
-    int ret = 0;
-    tsk_size_t *tmp = NULL;
-
-    if (n == orig_size) {
-        *out = in;
-        goto out;
-    }
-    if (n == 0) {
-        tsk_safe_free(in);
-        *out = NULL;
-        goto out;
-    }
-    tmp = tsk_realloc(in, n * sizeof(*tmp));
-    if (tmp == NULL) {
-        ret = TSK_ERR_NO_MEMORY;
-        goto out;
-    }
-    *out = tmp;
-out:
-    return ret;
+    tsk_safe_free(idx->rshr_matrix);
+    tsk_safe_free(idx->cshr_matrix);
+    tsk_safe_free(idx->rdiff_matrix);
+    tsk_safe_free(idx->cdiff_matrix);
+    tsk_safe_free(idx->shr_sites);
+    tsk_safe_free(idx->rdiff_sites);
+    tsk_safe_free(idx->cdiff_sites);
 }
 
 int
@@ -2398,10 +2373,10 @@ get_stat_matrix_site_indices(tsk_size_t n_sites, tsk_size_t n_rows,
     const tsk_id_t *row_sites, tsk_size_t n_cols, const tsk_id_t *col_sites,
     struct stat_matrix_site_indicies *idx)
 {
+    int ret = 0;
     tsk_size_t r = 0, c = 0, s = 0;
     tsk_size_t n_cdiff = 0, n_rdiff = 0, n_shr = 0;
-    tsk_id_t *sites;
-    tsk_id_t *unique_sites = tsk_malloc(n_sites * sizeof(*unique_sites));
+    tsk_id_t *sites = tsk_malloc(n_sites * sizeof(*sites));
     tsk_size_t *rshr = tsk_malloc(n_sites * sizeof(*rshr));
     tsk_size_t *cshr = tsk_malloc(n_sites * sizeof(*cshr));
     tsk_size_t *rdiff = tsk_malloc(n_sites * sizeof(*rdiff));
@@ -2410,22 +2385,34 @@ get_stat_matrix_site_indices(tsk_size_t n_sites, tsk_size_t n_rows,
     tsk_size_t *rdiff_idx = tsk_malloc(n_sites * sizeof(*rdiff_idx));
     tsk_size_t *cdiff_idx = tsk_malloc(n_sites * sizeof(*cdiff_idx));
 
+    if (sites == NULL || rshr == NULL || cshr == NULL || rdiff == NULL || cdiff == NULL
+        || shr_idx == NULL || rdiff_idx == NULL || cdiff_idx == NULL) {
+        ret = TSK_ERR_NO_MEMORY;
+        goto out;
+    }
+
     while ((r < n_rows) && (c < n_cols)) {
         if (row_sites[r] < col_sites[c]) {
             rdiff_idx[n_rdiff] = s;
-            rdiff[n_rdiff++] = r;
-            unique_sites[s++] = row_sites[r];
+            rdiff[n_rdiff] = r;
+            sites[s] = row_sites[r];
+            n_rdiff++;
+            s++;
             r++;
         } else if (col_sites[c] < row_sites[r]) {
             cdiff_idx[n_cdiff] = s;
-            cdiff[n_cdiff++] = c;
-            unique_sites[s++] = col_sites[c];
+            cdiff[n_cdiff] = c;
+            sites[s] = col_sites[c];
+            n_cdiff++;
+            s++;
             c++;
         } else { // row == col
             rshr[n_shr] = r;
             cshr[n_shr] = c;
-            shr_idx[n_shr++] = s;
-            unique_sites[s++] = row_sites[r];
+            shr_idx[n_shr] = s;
+            sites[s] = row_sites[r];
+            n_shr++;
+            s++;
             r++;
             c++;
         }
@@ -2433,53 +2420,38 @@ get_stat_matrix_site_indices(tsk_size_t n_sites, tsk_size_t n_rows,
     if (r < n_rows) {
         while (r < n_rows) {
             rdiff[n_rdiff] = r;
-            rdiff_idx[n_rdiff++] = s;
-            unique_sites[s++] = row_sites[r];
+            rdiff_idx[n_rdiff] = s;
+            sites[s] = row_sites[r];
+            n_rdiff++;
+            s++;
             r++;
         }
     } else if (c < n_cols) {
         while (c < n_cols) {
             cdiff[n_cdiff] = c;
-            cdiff_idx[n_cdiff++] = s;
-            unique_sites[s++] = col_sites[c];
+            cdiff_idx[n_cdiff] = s;
+            sites[s] = col_sites[c];
+            n_cdiff++;
+            s++;
             c++;
         }
     }
-
-    sites = tsk_malloc(s * sizeof(*sites));
-    tsk_memcpy(sites, unique_sites, s * sizeof(*sites));
 
     idx->n_sites = s;
     idx->n_shr = n_shr;
     idx->n_rdiff = n_rdiff;
     idx->n_cdiff = n_cdiff;
     idx->sites = sites;
-
-    if (realloc_and_set(n_sites, n_shr, rshr, &idx->rshr) != 0) {
-        goto out;
-    }
-    if (realloc_and_set(n_sites, n_shr, cshr, &idx->cshr) != 0) {
-        goto out;
-    }
-    if (realloc_and_set(n_sites, n_rdiff, rdiff, &idx->rdiff) != 0) {
-        goto out;
-    }
-    if (realloc_and_set(n_sites, n_cdiff, cdiff, &idx->cdiff) != 0) {
-        goto out;
-    }
-    if (realloc_and_set(n_sites, n_shr, shr_idx, &idx->shr_idx) != 0) {
-        goto out;
-    }
-    if (realloc_and_set(n_sites, n_rdiff, rdiff_idx, &idx->rdiff_idx) != 0) {
-        goto out;
-    }
-    if (realloc_and_set(n_sites, n_cdiff, cdiff_idx, &idx->cdiff_idx) != 0) {
-        goto out;
-    }
+    idx->rshr_matrix = rshr;
+    idx->cshr_matrix = cshr;
+    idx->rdiff_matrix = rdiff;
+    idx->cdiff_matrix = cdiff;
+    idx->shr_sites = shr_idx;
+    idx->rdiff_sites = rdiff_idx;
+    idx->cdiff_sites = cdiff_idx;
 
 out:
-    tsk_safe_free(unique_sites);
-    return 0;
+    return ret;
 }
 
 static int
@@ -2662,33 +2634,36 @@ tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
     } while (0);
 
     for (r = 0; r < idx.n_rdiff; r++) {
-        result_row = GET_2D_ROW(result, result_row_len, idx.rdiff[r]);
+        result_row = GET_2D_ROW(result, result_row_len, idx.rdiff_matrix[r]);
         for (c = 0; c < idx.n_cdiff; c++) {
             COMPUTE_STAT_FOR_MATRIX_IDX(
-                idx.cdiff[c], idx.rdiff_idx[r], idx.cdiff_idx[c]);
+                idx.cdiff_matrix[c], idx.rdiff_sites[r], idx.cdiff_sites[c]);
         }
         for (c = 0; c < idx.n_shr; c++) {
-            COMPUTE_STAT_FOR_MATRIX_IDX(idx.cshr[c], idx.rdiff_idx[r], idx.shr_idx[c]);
+            COMPUTE_STAT_FOR_MATRIX_IDX(
+                idx.cshr_matrix[c], idx.rdiff_sites[r], idx.shr_sites[c]);
         }
     }
     for (r = 0; r < idx.n_shr; r++) {
-        result_row = GET_2D_ROW(result, result_row_len, idx.rshr[r]);
+        result_row = GET_2D_ROW(result, result_row_len, idx.rshr_matrix[r]);
         for (c = 0; c < idx.n_cdiff; c++) {
-            COMPUTE_STAT_FOR_MATRIX_IDX(idx.cdiff[c], idx.shr_idx[r], idx.cdiff_idx[c]);
+            COMPUTE_STAT_FOR_MATRIX_IDX(
+                idx.cdiff_matrix[c], idx.shr_sites[r], idx.cdiff_sites[c]);
         }
     }
 
     inner = 0;
     for (r = 0; r < idx.n_shr; r++) {
-        result_row = GET_2D_ROW(result, result_row_len, idx.rshr[r]);
+        result_row = GET_2D_ROW(result, result_row_len, idx.rshr_matrix[r]);
         for (c = inner; c < idx.n_shr; c++) {
-            COMPUTE_STAT_FOR_MATRIX_IDX(idx.cshr[c], idx.shr_idx[r], idx.shr_idx[c]);
+            COMPUTE_STAT_FOR_MATRIX_IDX(
+                idx.cshr_matrix[c], idx.shr_sites[r], idx.shr_sites[c]);
             // If we're on an off-diagonal of a symmetric part of the matrix, reflect
-            if (row_sites[idx.rshr[r]] != col_sites[idx.cshr[c]]) {
-                result_row_tmp = GET_2D_ROW(result, result_row_len, idx.rshr[c]);
+            if (row_sites[idx.rshr_matrix[r]] != col_sites[idx.cshr_matrix[c]]) {
+                result_row_tmp = GET_2D_ROW(result, result_row_len, idx.rshr_matrix[c]);
                 for (k = 0; k < result_dim; k++) {
-                    result_row_tmp[(idx.cshr[r] * result_dim) + k]
-                        = result_row[(idx.cshr[c] * result_dim) + k];
+                    result_row_tmp[(idx.cshr_matrix[r] * result_dim) + k]
+                        = result_row[(idx.cshr_matrix[c] * result_dim) + k];
                 }
             }
         }
