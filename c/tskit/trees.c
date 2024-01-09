@@ -2800,7 +2800,6 @@ tsk_treeseq_two_locus_count_stat(const tsk_treeseq_t *self, tsk_size_t num_sampl
     }
 
     if (stat_site) {
-        // TODO: site validation
         ret = tsk_treeseq_two_site_count_stat(self, state_dim, &sample_sets_bits,
             result_dim, f, &f_params, norm_f, out_rows, row_sites, out_cols, col_sites,
             options, result);

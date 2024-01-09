@@ -2543,11 +2543,11 @@ test_two_locus_stat_input_errors(void)
     CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_NODE_OUT_OF_BOUNDS);
     sample_sets[1] = 1;
 
-    row_sites[2] = 3;
+    row_sites[0] = 1000;
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
         row_sites, num_sites, col_sites, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_SITE_OUT_OF_BOUNDS);
-    row_sites[2] = 2;
+    row_sites[0] = 0;
 
     col_sites[num_sites - 1] = (tsk_id_t) num_sites;
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
