@@ -2499,7 +2499,7 @@ get_mutation_samples(const tsk_treeseq_t *ts,
     tree.index = -1; // TODO: forcing seek_from_null
     ret = tsk_treeseq_get_site(ts, idx->sites[0], &first_site);
     if (ret != 0) {
-        goto out;
+        goto out; // Technically impossible, since we do bounds checking on site idx
     }
     mut_offset = 0;
     curr_site = 0;
@@ -2517,11 +2517,6 @@ get_mutation_samples(const tsk_treeseq_t *ts,
             site = &tree.sites[s];
             // Skip sites that are not in our sites index
             if (site->id != idx->sites[curr_site]) {
-                // If there aren't any more sites to consider, finish up
-                if (site->id >= idx->sites[idx->n_sites - 1]) {
-                    ret = 0;
-                    goto out;
-                }
                 continue;
             }
 
@@ -2720,7 +2715,8 @@ check_sites(const tsk_id_t *sites, tsk_size_t num_sites, tsk_size_t num_site_row
     tsk_size_t i;
 
     if (sites == NULL || num_sites == 0) {
-        goto out; // TODO: error? if so, what type?
+        ret = TSK_ERR_BAD_SITE_POSITION; // TODO: error should be no sites?
+        goto out;
     }
 
     for (i = 0; i < num_sites - 1; i++) {

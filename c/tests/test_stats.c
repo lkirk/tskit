@@ -2448,7 +2448,8 @@ test_paper_ex_two_site_subset(void)
     tsk_size_t num_sample_sets;
     tsk_id_t row_sites[2] = { 0, 1 };
     tsk_id_t col_sites[2] = { 1, 2 };
-    double result_truth[4] = { 0.1111111111111111, 0.1111111111111111, 1, 1 };
+    double result_truth_1[4] = { 0.1111111111111111, 0.1111111111111111, 1, 1 };
+    double result_truth_2[1] = { 0.1111111111111111 };
 
     tsk_treeseq_from_text(&ts, 10, paper_ex_nodes, paper_ex_edges, NULL, paper_ex_sites,
         paper_ex_mutations, paper_ex_individuals, NULL, 0);
@@ -2465,9 +2466,16 @@ test_paper_ex_two_site_subset(void)
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, 2,
         row_sites, 2, col_sites, 0, result);
-
     CU_ASSERT_EQUAL_FATAL(ret, 0);
-    ASSERT_ARRAYS_ALMOST_EQUAL(result_size * num_sample_sets, result, result_truth);
+    ASSERT_ARRAYS_ALMOST_EQUAL(result_size * num_sample_sets, result, result_truth_1);
+
+    result_size = 1 * 1;
+    tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
+    col_sites[0] = 2;
+    ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, 1,
+        row_sites, 1, col_sites, 0, result);
+    CU_ASSERT_EQUAL_FATAL(ret, 0);
+    ASSERT_ARRAYS_ALMOST_EQUAL(result_size * num_sample_sets, result, result_truth_2);
 
     tsk_treeseq_free(&ts);
 }
@@ -2541,6 +2549,12 @@ test_two_locus_stat_input_errors(void)
     CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_SITE_OUT_OF_BOUNDS);
     row_sites[2] = 2;
 
+    col_sites[num_sites - 1] = (tsk_id_t) num_sites;
+    ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
+        row_sites, num_sites, col_sites, 0, result);
+    CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_SITE_OUT_OF_BOUNDS);
+    col_sites[num_sites - 1] = (tsk_id_t) num_sites - 1;
+
     row_sites[0] = 1;
     row_sites[1] = 0;
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
@@ -2556,6 +2570,10 @@ test_two_locus_stat_input_errors(void)
     CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_UNSORTED_SITES);
     row_sites[0] = 0;
     row_sites[1] = 1;
+
+    ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, 0, NULL, 0,
+        NULL, 0, result);
+    CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_BAD_SITE_POSITION);
 
     tsk_treeseq_free(&ts);
     tsk_safe_free(row_sites);
