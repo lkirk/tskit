@@ -1,10 +1,6 @@
 import io
-from dataclasses import dataclass
-from dataclasses import field
-from enum import Enum
-from itertools import combinations_with_replacement
-from itertools import permutations
-from typing import List
+from itertools import combinations_with_replacement, permutations
+from typing import Any, Callable, Generator, Self
 
 import numpy as np
 import pytest
@@ -12,138 +8,205 @@ import pytest
 import tskit
 
 
-class NormMethod(Enum):
-    """
-    Method for norming the output statistic
+class BitSet:
+    """BitSet object, which stores values in arrays of unsigned integers.
+    The rows represent all possible values a bit can take, and the rows
+    represent each item that can be stored in the array.
 
-    TOTAL: Divide the statistic by the total number of haplotypes
-    HAP_WEIGHTED: Weight each allele's statistic by the proportion
-                  of the haplotype present
-    AF_WEIGHTED: Weight each allele's statistic by the product of
-                 the allele frequencies
+    :param num_bits: The number of values that a single row can contain.
+    :param length: The number of rows.
     """
 
-    TOTAL = "total"
-    HAP_WEIGHTED = "hap_weighted"
-    AF_WEIGHTED = "af_weighted"
+    DTYPE = np.uint32  # Data type to be stored in the bitset
+    CHUNK_SIZE = DTYPE(32)  # Size of integer field to store the data in
+
+    def __init__(self: Self, num_bits: int, length: int) -> None:
+        self.row_len = num_bits // self.CHUNK_SIZE
+        self.row_len += 1 if num_bits % self.CHUNK_SIZE else 0
+        self.row_len = int(self.row_len)
+        self.data = np.zeros(self.row_len * length, dtype=self.DTYPE)
+
+    def intersect(
+        self: Self, self_row: int, other: Self, other_row: int, out: Self
+    ) -> None:
+        """Intersect a row from the current array instance with a row from
+        another BitSet and store it in an output bit array of length 1.
+
+        NB: we don't specify the row in the output array, it is expected
+        to be length 1.
+
+        :param self_row: Row from the current array instance to be intersected.
+        :param other: Other BitSet to intersect with.
+        :param other_row: Row from the other BitSet instance.
+        :param out: BitArray to store the result.
+        """
+        self_offset = self_row * self.row_len
+        other_offset = other_row * self.row_len
+
+        for i in range(self.row_len):
+            out.data[i] = self.data[i + self_offset] & other.data[i + other_offset]
+
+    def difference(self: Self, self_row: int, other: Self, other_row: int) -> None:
+        """Take the difference between the current array instance and another
+        array instance. Store the result in the specified row of the current
+        instance.
+
+        :param self_row: Row from the current array from which to subtract.
+        :param other: Other BitSet to subtract from the current instance.
+        :param other_row: Row from the other BitSet instance.
+        """
+        self_offset = self_row * self.row_len
+        other_offset = other_row * self.row_len
+
+        for i in range(self.row_len):
+            self.data[i + self_offset] &= ~(other.data[i + other_offset])
+
+    def union(self: Self, self_row: int, other: Self, other_row: int) -> None:
+        """Take the union between the current array instance and another
+        array instance. Store the result in the specified row of the current
+        instance.
+
+        :param self_row: Row from the current array with which to union.
+        :param other: Other BitSet to union with the current instance.
+        :param other_row: Row from the other BitSet instance.
+        """
+        self_offset = self_row * self.row_len
+        other_offset = other_row * self.row_len
+
+        for i in range(self.row_len):
+            self.data[i + self_offset] |= other.data[i + other_offset]
+
+    def add(self: Self, row: int, bit: int) -> None:
+        """Add a single bit to the row of a bit array
+
+        :param row: Row to be modified.
+        :param bit: Bit to be added.
+        """
+        offset = row * self.row_len
+        i = bit // self.CHUNK_SIZE
+        self.data[i + offset] |= self.DTYPE(1) << (bit - (self.CHUNK_SIZE * i))
+
+    def get_items(self: Self, row: int) -> Generator[int, None, None]:
+        """Get the items stored in the row of a bitset
+
+        :param row: Row from the array to list from.
+        :returns: A generator of integers stored in the array.
+        """
+        offset = row * self.row_len
+        for i in range(self.row_len):
+            for item in range(self.CHUNK_SIZE):
+                if self.data[i + offset] & (self.DTYPE(1) << item):
+                    yield item + (i * self.CHUNK_SIZE)
+
+    def contains(self: Self, row: int, bit: int) -> bool:
+        """Test if a bit is contained within a bit array row
+
+        :param row: Row to test.
+        :param bit: Bit to check.
+        :returns: True if the bit is set in the row, else false.
+        """
+        i = bit // self.CHUNK_SIZE
+        offset = row * self.row_len
+        return bool(
+            self.data[i + offset] & (self.DTYPE(1) << (bit - (self.CHUNK_SIZE * i)))
+        )
+
+    def count(self: Self, row: int) -> int:
+        """Count all of the set bits in a specified row. Uses a SWAR
+        algorithm to count in parallel with a constant number (12) of operations.
+
+        NB: we have to cast all values to our unsigned dtype to avoid type promotion
+
+        Details here:
+        # https://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel
+
+        :param row: Row to count.
+        :returns: Count of all of the set bits.
+        """
+        count = 0
+        offset = row * self.row_len
+        D = self.DTYPE
+
+        for i in range(offset, offset + self.row_len):
+            v = self.data[i]
+            v = v - ((v >> D(1)) & D(0x55555555))
+            v = (v & D(0x33333333)) + ((v >> D(2)) & D(0x33333333))
+            # this operation relies on integer overflow
+            with np.errstate(over="ignore"):
+                count += ((v + (v >> D(4)) & D(0xF0F0F0F)) * D(0x1010101)) >> D(24)
+
+        return count
+
+    def count_naive(self: Self, row: int) -> int:
+        """Naive counting algorithm implementing the same functionality as the count
+        method. Useful for testing correctness, uses the same number of operations
+        as set bits.
+
+        Details here:
+        # https://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetNaive
+
+        :param row: Row to count.
+        :returns: Count of all of the set bits.
+        """
+        count = 0
+        offset = row * self.row_len
+
+        for i in range(offset, offset + self.row_len):
+            v = self.data[i]
+            while v:
+                v &= v - self.DTYPE(1)
+                count += self.DTYPE(1)
+        return count
 
 
-def get_state(ts, sites):
-    """Walk along the tree sequence, visiting all of the specified
-    sites, and store the final sample allele state in an entry of
-    a 2d numpy array. We enumerate all allele states in a site, and
-    store the enumerated state for the sample.
+def norm_hap_weighted(
+    state_dim: int,
+    hap_weights: np.ndarray,
+    n_a: int,
+    n_b: int,
+    result: np.ndarray,
+    params: dict[str, Any],
+) -> None:
+    """Create a vector of normalizing coefficients, length of the number of
+    sample sets. In this normalization strategy, we weight each allele's
+    statistic by the proportion of the haplotype present.
 
-    :param ts: Tree sequence to gather data from
-    :param sites: List of sites to gather data for
-    :returns: 2d numpy array containing the final allelic state
-              for all samples and sites in the index.
+    :param state_dim: Number of sample sets.
+    :param hap_weights: Proportion of each two-locus haplotype.
+    :param n_a: Number of alleles at the A locus.
+    :param n_b: Number of alleles at the B locus.
+    :param result: Result vector to store the normalizing coefficients in.
+    :param params: Params of summary function.
     """
-    state = np.zeros((len(sites), ts.num_samples), dtype=int)
-    current_site = 0
-    for tree in ts.trees():
-        for site in tree.sites():
-            if site.id in sites:
-                states = [site.ancestral_state]
-                current_state = 0
-                for mutation in site.mutations:
-                    # if we've seen the state, use the index as the enumerated
-                    # state value, otherwise, add another state value
-                    if mutation.derived_state in states:
-                        current_state = states.index(mutation.derived_state)
-                    else:
-                        states.append(mutation.derived_state)
-                        current_state = len(states) - 1
-
-                    for sample_id in tree.samples(mutation.node):
-                        state[current_site, sample_id] = current_state
-                current_site += 1
-    return state
+    del n_a, n_b  # handle unused params
+    sample_set_sizes = params["sample_set_sizes"]
+    for k in range(state_dim):
+        n = sample_set_sizes[k]
+        result[k] = hap_weights[0, k] / n
 
 
-def compute_stat_and_weights(
-    hap_counts,
-    summary_func,
-    polarized,
-    norm_method,
-    print_weights,
-):
-    """Given a matrix of haplotype counts, compute the haplotype frequencies,
-    then compute the statistic and its corresponding normalizing constants.
+def norm_total_weighted(
+    state_dim: int,
+    hap_weights: np.ndarray,
+    n_a: int,
+    n_b: int,
+    result: np.ndarray,
+    params: dict[str, Any],
+) -> None:
+    """Create a vector of normalizing coefficients, length of the number of
+    sample sets. In this normalization strategy, we weight each allele's
+    statistic by the product of the allele frequencies
 
-    :param hap_counts: Matrix containing counts of haplotypes.
-    :param summary_func: The function that will produce our statistic.
-    :param polarized: If true, skip the computation of the statistic for the
-                      ancestral state.
-    :param norm_method: Method of producing the normalizing constants (see the
-                        docstring for the NormMethod enum).
-    :param print_weights: Debugging tool for printing out the computed haplotype
-                          frequencies.
-    :returns: Tuple of the stats and their corresponding normalizing constants.
-              Stats and normalizing constants will have the same shape as the
-              haplotype matrix.
+    :param state_dim: Number of sample sets.
+    :param hap_weights: Proportion of each two-locus haplotype.
+    :param n_a: Number of alleles at the A locus.
+    :param n_b: Number of alleles at the B locus.
+    :param result: Result vector to store the normalizing coefficients in.
+    :param params: Params of summary function.
     """
-    hap_counts = np.asarray(hap_counts)
-
-    # number of samples
-    n = hap_counts.sum()
-    # number of B alleles, number of A alleles
-    n_a, n_b = hap_counts.shape
-
-    weights = np.zeros(hap_counts.shape)
-    stats = np.zeros(hap_counts.shape)
-    for a_idx in range(1 if polarized else 0, n_a):
-        for b_idx in range(1 if polarized else 0, n_b):
-            # compute haplotype weights
-            w_AB = hap_counts[a_idx, b_idx]
-            w_Ab = hap_counts[a_idx, :].sum() - w_AB
-            w_aB = hap_counts[:, b_idx].sum() - w_AB
-
-            # compute stat
-            stats[a_idx, b_idx] = summary_func(w_AB, w_Ab, w_aB, n)
-
-            if print_weights:
-                print(a_idx, b_idx, int(w_AB), int(w_Ab), int(w_aB), int(n), sep="\t")
-            # create weights matrix
-            if norm_method is NormMethod.HAP_WEIGHTED:
-                hap_freq = hap_counts / n
-                weights[a_idx, b_idx] = hap_freq[a_idx, b_idx]
-            elif norm_method is NormMethod.AF_WEIGHTED:
-                p_a = hap_counts.sum(1) / n
-                p_b = hap_counts.sum(0) / n
-                weights[a_idx, b_idx] = p_a[a_idx] * p_b[b_idx]
-            elif norm_method is NormMethod.TOTAL:
-                weights[a_idx, b_idx] = 1 / (
-                    (n_a - (1 if polarized else 0)) * (n_b - (1 if polarized else 0))
-                )
-
-    return stats, weights
-
-
-@dataclass
-class SiteMatrixIndex:
-    """
-    This object stores index values for the output result matrix and
-    for the sites array (stored on this object).
-
-    For each index array, we store information for sites that are shared
-    between rows and columns, and sites that differ between rows and columns.
-    """
-
-    n_rows: int  # number of row sites
-    n_cols: int  # number of column sites
-    # Union of row/column sites (in order)
-    sites: List[int] = field(default_factory=list)
-    # Result matrix indices for shared/diff between rows/columns
-    rshr_matrix: List[int] = field(default_factory=list)
-    cshr_matrix: List[int] = field(default_factory=list)
-    rdiff_matrix: List[int] = field(default_factory=list)
-    cdiff_matrix: List[int] = field(default_factory=list)
-    # Index into the sites array on this object for rows/columns/shared
-    # This index also maps to the data gathered by get_state. (Important!!)
-    shr_sites: List[int] = field(default_factory=list)
-    rdiff_sites: List[int] = field(default_factory=list)
-    cdiff_sites: List[int] = field(default_factory=list)
+    del hap_weights, params  # handle unused params
+    for k in range(state_dim):
+        result[k] = 1 / (n_a * n_b)
 
 
 def check_sites(sites, max_sites):
@@ -157,7 +220,7 @@ def check_sites(sites, max_sites):
 
     Raises an exception if any error is found.
 
-    :param sites: 1d array of sites to validate
+    :param sites: 1d array of sites to validate.
     :param max_sites: Number of sites in the tree sequence, the upper
                       bound value for site ids.
     """
@@ -173,191 +236,402 @@ def check_sites(sites, max_sites):
         raise ValueError(f"Site out of bounds: {sites[i + 1]}")
 
 
-def get_matrix_indices(row_sites, col_sites):
-    """Index two lists of sites and return an index object. To do this
-    efficiently, we store an index into the row list and column list,
-    advancing one if the last encountered value of one is smaller than the
-    other. If the last encountered values of both arrays are equal, we
-    advance the index for both arrays.
+def get_site_row_col_indices(
+    row_sites: list[int], col_sites: list[int]
+) -> tuple[list[int], list[int], list[int]]:
+    """Co-iterate over the row and column sites, keeping a sorted union of
+    site values and an index into the unique list of sites for both the row
+    and column sites. This function produces a list of sites of interest and
+    row and column indexes into this list of sites.
 
-    During this process, we store a sorted union of site values and keep
-    track of the number of rows and column site ids that will eventually
-    dictate the result matrix dimensions.
-
-    This routine requires that the site lists are sorted and deduplicated.
+    NB: This routine requires that the site lists are sorted and deduplicated.
 
     :param row_sites: List of sites that will be represented in the output
-                      matrix rows
+                      matrix rows.
     :param col_sites: List of sites that will be represented in the output
-                      matrix columns
-    :returns: Index object containing indices for the site ids/result matrix/
-              state matrix.
+                      matrix columns.
+    :returns: Tuple of lists of sites, row, and column indices.
     """
     r = 0
     c = 0
     s = 0
-    idx = SiteMatrixIndex(len(row_sites), len(col_sites))
+    sites = []
+    col_idx = []
+    row_idx = []
 
     while r < len(row_sites) and c < len(col_sites):
         if row_sites[r] < col_sites[c]:
-            idx.rdiff_sites.append(s)
-            idx.rdiff_matrix.append(r)
-            idx.sites.append(row_sites[r])
+            sites.append(row_sites[r])
+            row_idx.append(s)
+            s += 1
             r += 1
+        elif row_sites[r] > col_sites[c]:
+            sites.append(col_sites[c])
+            col_idx.append(s)
             s += 1
-        elif col_sites[c] < row_sites[r]:
-            idx.cdiff_sites.append(s)
-            idx.cdiff_matrix.append(c)
-            idx.sites.append(col_sites[c])
             c += 1
-            s += 1
         else:
-            idx.rshr_matrix.append(r)
-            idx.cshr_matrix.append(c)
-            idx.shr_sites.append(s)
-            idx.sites.append(row_sites[r])
+            sites.append(row_sites[r])
+            row_idx.append(s)
+            col_idx.append(s)
+            s += 1
             r += 1
             c += 1
-            s += 1
-
-    # Once we've hit the end of one (or both) of the row/column arrays,
-    # check to see if there are any remaining items in any of the lists.
-    # If there are, account for the remaining values.
     while r < len(row_sites):
-        idx.rdiff_matrix.append(r)
-        idx.rdiff_sites.append(s)
-        idx.sites.append(row_sites[r])
+        sites.append(row_sites[r])
+        row_idx.append(s)
+        s += 1
         r += 1
     while c < len(col_sites):
-        idx.cdiff_matrix.append(c)
-        idx.cdiff_sites.append(s)
-        idx.sites.append(col_sites[c])
+        sites.append(col_sites[c])
+        col_idx.append(s)
+        s += 1
         c += 1
 
-    return idx
+    return sites, row_idx, col_idx
 
 
-def compute_two_site_general_stat(
-    state,
-    func,
-    polarized,
-    norm_method,
-    sample_sets,
-    idx,
-    debug=False,
-    print_weights=False,
-):
-    """Compute the ld matrix, given the sample allele state, various parameters,
-    and a site index.
+def get_all_samples_bits(num_samples: int) -> BitSet:
+    """Get the bits for all samples in the tree sequence. This is achieved
+    by creating a length 1 bitset and adding every sample's bit to it.
 
-    :param state: State matrix containing the allelic state for each sample
-    :param func: Summary function to apply to the haplotype weights
-    :param polarized: If true, skip the computation of the statistic for the
-                      ancestral state.
-    :param norm_method: Method of producing the normalizing constants (see the
-                        docstring for the NormMethod enum).
-    :param sample_sets: List of lists of samples to compute stats for. We will
-                        only produce haplotype matricies that contain these
-                        samples, resulting in stats that are computed on subsets
-                        of the total number of samples on the tree sequence.
-    :param idx: Site index, storing indices for the state matrix, result matrix,
-                and site ids.
-    :param debug: If true, print the haplotype matrix and normalizing constants
-    :param print_weights: Debugging tool for printing out the computed haplotype
-                          frequencies.
-    :returns: 3d numpy array containing LD for (sample_set,row_site,column_site)
+    :param num_samples: Number of samples contained in the tree sequence.
+    :returns: Length 1 BitSet containing all samples in the tree sequence.
     """
-    state = np.asarray(state)
-    norm = NormMethod(norm_method)
+    all_samples = BitSet(num_samples, 1)
+    for i in range(num_samples):
+        all_samples.add(0, i)
+    return all_samples
 
-    result = np.zeros((len(sample_sets), idx.n_rows, idx.n_cols))
 
-    def compute(left_states, right_states):
-        hap_counts = np.zeros((np.max(left_states) + 1, np.max(right_states) + 1))
-        # compute the haplotype matrix
-        for A_i, B_i in zip(left_states, right_states):
-            hap_counts[A_i, B_i] += 1
-        stats, weights = compute_stat_and_weights(
-            hap_counts, func, polarized, norm, print_weights
+def get_allele_samples(
+    site: tskit.Site, site_offset: int, mut_samples: BitSet, allele_samples: BitSet
+) -> int:
+    """Given a BitSet that has been arranged so that we have every sample under
+    a given mutation's node, create the final output where we know which samples
+    should belong under each mutation, considering the mutation's parentage,
+    back mutations, and ancestral state.
+
+    To this end, we iterate over each mutation and store the samples under the
+    focal mutation in the output BitSet (allele_samples). Then, we check the
+    parent of the focal mutation (either a mutation or the ancestral allele),
+    and we subtract the samples in the focal mutation from the parent allele's
+    samples.
+
+    :param site: Focal site for which to adjust mutation data.
+    :param site_offset: Offset into allele_samples for our focal site.
+    :param mut_samples: BitSet containing the samples under each mutation in the
+                        focal site.
+    :param allele_samples: Output BitSet, initially passed in with all of the
+                           tree sequence samples set in the ancestral allele
+                           state.
+    :returns: number of alleles actually encountered (adjusting for back-mutation).
+    """
+    alleles = []
+    num_alleles = 1
+    alleles.append(site.ancestral_state)
+
+    for m, mut in enumerate(site.mutations):
+        try:
+            allele = alleles.index(mut.derived_state)
+        except ValueError:
+            allele = len(alleles)
+            alleles.append(mut.derived_state)
+            num_alleles += 1
+        allele_samples.union(allele + site_offset, mut_samples, m)
+        # now to find the parent allele from which we must subtract
+        alt_allele_state = site.ancestral_state
+        if mut.parent != tskit.NULL:
+            parent_mut = site.mutations[mut.parent - site.mutations[0].id]
+            alt_allele_state = parent_mut.derived_state
+        alt_allele = alleles.index(alt_allele_state)
+        # subtract focal allele's samples from the alt allele
+        allele_samples.difference(
+            alt_allele + site_offset, allele_samples, allele + site_offset
         )
-        if debug:
-            print(
-                "hap_counts",
-                hap_counts,
-                "stats",
-                stats,
-                "weights",
-                weights,
-                "============",
-                sep="\n",
-            )
-        # reduce the LD stats for each allele state into a scalar for the focal
-        # pair of sites.
-        return (stats * weights).sum()
 
-    for i, ss in enumerate(sample_sets):
-        # Fill in matrix entries that do not cross the diagonal (no reflection)
-        for r in range(len(idx.rdiff_matrix)):
-            for c in range(len(idx.cdiff_matrix)):
-                result[i, idx.rdiff_matrix[r], idx.cdiff_matrix[c]] = compute(
-                    state[idx.rdiff_sites[r], ss], state[idx.cdiff_sites[c], ss]
+    return num_alleles
+
+
+def get_mutation_samples(
+    ts: tskit.TreeSequence, sites: list[int]
+) -> tuple[np.ndarray, np.ndarray, BitSet]:
+    """For a given set of sites, generate a BitSet of all samples posessing
+    each allelic state for each site. This includes the ancestral state, along
+    with any mutations contained in the site.
+
+    We achieve this goal by starting at the tree containing the first site in
+    our list, then we walk along each tree until we've encountered the last
+    tree containing the last site in our list. Along the way, we perform a
+    preorder traversal from the node of each mutation in a given site, storing
+    the samples under that particular node. After we've stored all of the samples
+    for each allele at a site, we adjust each allele's samples by removing
+    samples that have a different allele at a child mutation down the tree (see
+    get_allele_samples for more details).
+
+    We also gather some ancillary data while we iterate over the sites: the
+    number of alleles for each site, and the offset of each site. The number of
+    alleles at each site includes the count of mutations + the ancestral allele.
+    The offeset for each site indicates how many array entries we must skip (ie
+    how many alleles exist before a specific site's entry) in order to address
+    the data for a given site.
+
+    :param ts: Tree sequence to gather data from.
+    :param sites: Subset of sites to consider when gathering data.
+    :returns: Tuple of the number of alleles per site, site offsets, and the
+              BitSet of all samples in each allelic state.
+    """
+    num_alleles = np.zeros(len(sites), dtype=np.uint64)
+    site_offsets = np.zeros(len(sites), dtype=np.uint64)
+    all_samples = get_all_samples_bits(ts.num_samples)
+    allele_samples = BitSet(
+        ts.num_samples, sum(len(ts.site(i).mutations) + 1 for i in sites)
+    )
+
+    site_offset = 0
+    site_idx = 0
+    tree = ts.at(ts.site(sites[site_idx]).position)
+    while True:
+        for site in tree.sites():
+            if site.id != sites[site_idx]:
+                continue
+            # initialize the ancestral allele with all samples
+            allele_samples.union(site_offset, all_samples, 0)
+            # store samples for each mutation in mut_samples
+            mut_samples = BitSet(ts.num_samples, len(site.mutations))
+            for m, mut in enumerate(site.mutations):
+                for node in tree.preorder(mut.node):
+                    if ts.node(node).is_sample():
+                        mut_samples.add(m, node)
+            # account for mutation parentage, subtract samples from mutation parents
+            num_alleles[site_idx] = get_allele_samples(
+                site, site_offset, mut_samples, allele_samples
+            )
+            # increment the offset for ancestral + mutation alleles
+            site_offsets[site_idx] = site_offset
+            site_offset += len(site.mutations) + 1
+
+            site_idx += 1
+            if site_idx >= len(sites):
+                return num_alleles, site_offsets, allele_samples
+
+        if not tree.next():
+            break
+
+    return num_alleles, site_offsets, allele_samples
+
+
+def compute_general_two_site_stat_result(
+    row_site_offset: int,
+    col_site_offset: int,
+    num_row_alleles: int,
+    num_col_alleles: int,
+    num_samples: int,
+    allele_samples: BitSet,
+    state_dim: int,
+    sample_sets: BitSet,
+    func: Callable[[int, np.ndarray, np.ndarray, dict[str, Any]], None],
+    norm_func: Callable[[int, np.ndarray, int, int, np.ndarray, dict[str, Any]], None],
+    params: dict[str, Any],
+    polarised: bool,
+    result: np.ndarray,
+) -> None:
+    """For a given pair of sites, compute the summary statistic for the allele
+    frequencies for each allelic state of the two pairs.
+
+    :param row_site_offset: Offset of the row site's data in the allele_samples.
+    :param row_site_offset: Offset of the col site's data in the allele_samples.
+    :param num_row_alleles: Number of alleles in the row site.
+    :param num_col_alleles: Number of alleles in the col site.
+    :param num_samples: Number of samples in tree sequence.
+    :param allele_samples: BitSet containing the samples with each allelic state
+                           for each site of interest.
+    :param state_dim: Number of sample sets.
+    :param sample_sets: BitSet of sample sets to be intersected with the samples
+                        contained within each allele.
+    :param func: Summary function used to compute each two-locus statistic.
+    :param norm_func: Function used to generate the normalization coefficients
+                      for each statistic.
+    :param params: Parameters to pass to the norm and summary function.
+    :param polarised: If true, skip the computation of the statistic for the
+                      ancestral state.
+    :param result: Vector of the results matrix to populate. We will produce one
+                   value per sample set, hence the vector of length state_dim.
+    """
+    ss_A_samples = BitSet(num_samples, 1)
+    ss_B_samples = BitSet(num_samples, 1)
+    ss_AB_samples = BitSet(num_samples, 1)
+    AB_samples = BitSet(num_samples, 1)
+    weights = np.zeros((3, state_dim), np.float64)
+    norm = np.zeros(state_dim, np.float64)
+    result_tmp = np.zeros(state_dim, np.float64)
+
+    polarised_val = 1 if polarised else 0
+
+    for mut_a in range(polarised_val, num_row_alleles):
+        a = int(mut_a + row_site_offset)
+        for mut_b in range(polarised_val, num_col_alleles):
+            b = int(mut_b + col_site_offset)
+            allele_samples.intersect(a, allele_samples, b, AB_samples)
+            for k in range(state_dim):
+                allele_samples.intersect(a, sample_sets, k, ss_A_samples)
+                allele_samples.intersect(b, sample_sets, k, ss_B_samples)
+                AB_samples.intersect(0, sample_sets, k, ss_AB_samples)
+
+                w_AB = ss_AB_samples.count(0)
+                w_A = ss_A_samples.count(0)
+                w_B = ss_B_samples.count(0)
+
+                weights[0, k] = w_AB
+                weights[1, k] = w_A - w_AB  # w_Ab
+                weights[2, k] = w_B - w_AB  # w_aB
+
+                func(state_dim, weights, result_tmp, params)
+
+                norm_func(
+                    state_dim,
+                    weights,
+                    num_row_alleles - polarised_val,
+                    num_col_alleles - polarised_val,
+                    norm,
+                    params,
                 )
-            for c in range(len(idx.shr_sites)):
-                result[i, idx.rdiff_matrix[r], idx.cshr_matrix[c]] = compute(
-                    state[idx.rdiff_sites[r], ss], state[idx.shr_sites[c], ss]
-                )
-        for r in range(len(idx.shr_sites)):
-            for c in range(len(idx.cdiff_matrix)):
-                result[i, idx.rshr_matrix[r], idx.cdiff_matrix[c]] = compute(
-                    state[idx.shr_sites[r], ss], state[idx.cdiff_sites[c], ss]
-                )
-        # Fill in entries that cross the diagonal of the LD matrix, reflecting
-        # them across the diagonal instead of computing them twice.
-        inner = 0
-        for r in range(len(idx.shr_sites)):
-            for c in range(inner, len(idx.shr_sites)):
-                result[i, idx.rshr_matrix[r], idx.cshr_matrix[c]] = compute(
-                    state[idx.shr_sites[r], ss], state[idx.shr_sites[c], ss]
-                )
-                if idx.sites[idx.shr_sites[r]] != idx.sites[idx.shr_sites[c]]:
-                    result[i, idx.rshr_matrix[c], idx.cshr_matrix[r]] = result[
-                        i, idx.rshr_matrix[r], idx.cshr_matrix[c]
-                    ]
+
+            for k in range(state_dim):
+                result[k] += result_tmp[k] * norm[k]
+
+
+def two_site_count_stat(
+    ts: tskit.TreeSequence,
+    func: Callable[[int, np.ndarray, np.ndarray, dict[str, Any]], None],
+    norm_func: Callable[[int, np.ndarray, int, int, np.ndarray, dict[str, Any]], None],
+    num_sample_sets: int,
+    sample_set_sizes: np.ndarray,
+    sample_sets: BitSet,
+    row_sites: list[int],
+    col_sites: list[int],
+    polarised: bool,
+) -> np.ndarray:
+    """Outer function that generates the high-level intermediates used in the
+    computation of our two-locus statistics. First, we compute the row and
+    column indices for our unique list of sites, then we get each sample for
+    each allele in our list of specified sites.
+
+    With those intermediates in hand, we iterate over the row and column indices
+    to compute comparisons between each of the specified lists of sites. We pass
+    a vector of results to the computation, which will compute a single result
+    for each sample set, inserting that into our result matrix.
+
+    :param ts: Tree sequence to gather data from.
+    :param func: Function used to compute each two-locus statistic.
+    :param norm_func: Function used to generate the normalization coefficients
+                      for each statistic.
+    :param num_sample_sets: Number of sample sets that we will consider.
+    :param sample_set_sizes: Number of samples in each sample set.
+    :param sample_sets: BitSet of samples to compute stats for. We will only
+                        consider these samples in our computations, resulting
+                        in stats that are computed on subsets of the samples
+                        on the tree sequence.
+    :param row_sites: Sites contained in the rows of the output matrix.
+    :param col_sites: Sites contained in the columns of the output matrix.
+    :param polarised: If true, skip the computation of the statistic for the
+                      ancestral state.
+    :returns: 3D array of results, dimensions (sample_sets, row_sites, col_sites).
+    """
+    state_dim = len(sample_set_sizes)
+    params = {"sample_set_sizes": sample_set_sizes}
+    result = np.zeros(
+        (num_sample_sets, len(row_sites), len(col_sites)), dtype=np.float64
+    )
+
+    sites, row_idx, col_idx = get_site_row_col_indices(row_sites, col_sites)
+    num_alleles, site_offsets, allele_samples = get_mutation_samples(ts, sites)
+
+    for row, row_site in enumerate(row_idx):
+        for col, col_site in enumerate(col_idx):
+            compute_general_two_site_stat_result(
+                site_offsets[row_site],
+                site_offsets[col_site],
+                num_alleles[row_site],
+                num_alleles[col_site],
+                ts.num_samples,
+                allele_samples,
+                state_dim,
+                sample_sets,
+                func,
+                norm_func,
+                params,
+                polarised,
+                result[:, row, col],
+            )
 
     return result
 
 
-def two_site_general_stat(
+def sample_sets_to_bit_array(
+    ts: tskit.TreeSequence, sample_sets: list[list[int]]
+) -> tuple[np.ndarray, BitSet]:
+    """Convert the list of sample ids to a bit array. This function takes
+    sample identifiers and maps them to their enumerated integer values, then
+    stores these values in a bit array. We produce a BitArray and a numpy
+    array of integers that specify how many samples there are in each sample set.
+
+    NB: this function's type signature is of type integer, but I believe this
+        could be expanded to Any, currently untested so the integer
+        specification remains.
+
+    :param ts: Tree sequence to gather data from.
+    :param sample_sets: List of sample identifiers to store in bit array.
+    :returns: Tuple containing numpy array of sample set sizes and the sample
+              set BitSet.
+    """
+    sample_sets_bits = BitSet(ts.num_samples, len(sample_sets))
+    sample_index_map = -np.ones(ts.num_nodes, dtype=np.int32)
+    sample_set_sizes = np.zeros(len(sample_sets), dtype=np.uint64)
+
+    for i, sample in enumerate(ts.samples()):
+        sample_index_map[sample] = i
+
+    for k, sample_set in enumerate(sample_sets):
+        sample_set_sizes[k] = len(sample_set)
+        for sample in sample_set:
+            sample_index = sample_index_map[sample]
+            if sample_index == tskit.NULL:
+                raise ValueError(f"Sample out of bounds: {sample}")
+            if sample_sets_bits.contains(k, sample_index):
+                raise ValueError(f"Duplicate sample detected: {sample}")
+            sample_sets_bits.add(k, sample_index)
+
+    return sample_set_sizes, sample_sets_bits
+
+
+def two_locus_count_stat(
     ts,
     summary_func,
-    norm_method,
-    polarized,
+    norm_func,
+    polarised,
     sites=None,
     sample_sets=None,
-    debug=False,
-    print_weights=False,
 ):
     """Outer wrapper for two site general stat functionality. Perform some input
     validation, get the site index and allele state, then compute the LD matrix.
 
-    :param ts: Tree sequence to compute LD from.
-    :param summary_func: The function that will produce our statistic.
-    :param norm_method: Method of producing the normalizing constants (see the
-                        docstring for the NormMethod enum).
-    :param polarized: If true, skip the computation of the statistic for the
+    TODO: implement mode switching for branch stats
+
+    :param ts: Tree sequence to gather data from.
+    :param summary_func: Function used to compute each two-locus statistic.
+    :param norm_func: Function used to generate the normalization coefficients
+                      for each statistic.
+    :param polarised: If true, skip the computation of the statistic for the
                       ancestral state.
-    :param sites: List of two lists containing [row_sites, column_sites]
+    :param sites: List of two lists containing [row_sites, column_sites].
     :param sample_sets: List of lists of samples to compute stats for. We will
-                        only produce haplotype matricies that contain these
-                        samples, resulting in stats that are computed on subsets
-                        of the total number of samples on the tree sequence.
-    :param debug: If true, print the haplotype matrix and normalizing constants
-    :param print_weights: Debugging tool for printing out the computed haplotype
-                          frequencies.
+                        only consider these samples in our computations,
+                        resulting in stats that are computed on subsets of the
+                        samples on the tree sequence.
     :returns: 3d numpy array containing LD for (sample_set,row_site,column_site)
               unless one or no sample sets are specified, then 2d array
-              containing LD for (row_site,column_site)
-
+              containing LD for (row_site,column_site).
     """
     if sample_sets is None:
         sample_sets = [ts.samples()]
@@ -374,51 +648,56 @@ def two_site_general_stat(
     row_sites, col_sites = sites
     check_sites(row_sites, ts.num_sites)
     check_sites(col_sites, ts.num_sites)
-    idx = get_matrix_indices(row_sites, col_sites)
 
-    state = get_state(ts, idx.sites)
+    ss_sizes, ss_bits = sample_sets_to_bit_array(ts, sample_sets)
 
-    result = compute_two_site_general_stat(
-        state,
+    result = two_site_count_stat(
+        ts,
         summary_func,
-        polarized,
-        norm_method,
-        sample_sets,
-        idx,
-        debug,
-        print_weights,
+        norm_func,
+        len(ss_sizes),
+        ss_sizes,
+        ss_bits,
+        sites[0],
+        sites[1],
+        polarised,
     )
+
     # If there is one sample set, return a 2d numpy array of row/site LD
     if len(sample_sets) == 1:
         return result.reshape(result.shape[1:3])
     return result
 
 
-def r2(w_AB, w_Ab, w_aB, n):
-    """Summary function for the r2 statistic
+def r2_summary_func(
+    state_dim: int, state: np.ndarray, result: np.ndarray, params: dict[str, Any]
+) -> None:
+    """Summary function for the r2 statistic. We first compute the proportion of
+    AB, A, and B haplotypes, then we compute the r2 statistic, storing the outputs
+    in the result vector, one entry per sample set.
 
-    :param w_AB: Number of haplotypes containing both derived states
-    :param w_Ab: Number of haplotypes containing derived on left locus and
-                 ancestral on the right locus
-    :param w_aB: Number of haplotypes containing ancestral on the left locus
-                 and derived on the right locus
-    :param n: Total number of samples
-    :returns: r2 for the given haplotype frequencies
+    :param state_dim: Number of sample sets.
+    :param state: Counts of 3 haplotype configurations for each sample set.
+    :param result: Vector of length state_dim to store the results in.
+    :param params: Parameters for the summary function.
     """
-    p_AB = w_AB / float(n)
-    p_Ab = w_Ab / float(n)
-    p_aB = w_aB / float(n)
+    sample_set_sizes = params["sample_set_sizes"]
+    for k in range(state_dim):
+        n = sample_set_sizes[k]
+        p_AB = state[0, k] / n
+        p_Ab = state[1, k] / n
+        p_aB = state[2, k] / n
 
-    p_A = p_AB + p_Ab
-    p_B = p_AB + p_aB
+        p_A = p_AB + p_Ab
+        p_B = p_AB + p_aB
 
-    D_ = p_AB - (p_A * p_B)
-    denom = p_A * p_B * (1 - p_A) * (1 - p_B)
+        D = p_AB - (p_A * p_B)
+        denom = p_A * p_B * (1 - p_A) * (1 - p_B)
 
-    if denom == 0 and D_ == 0:
-        return 0.0
-
-    return (D_ * D_) / denom
+        if denom == 0 and D == 0:
+            result[k] = 0
+        else:
+            result[k] = (D * D) / denom
 
 
 def get_paper_ex_ts():
@@ -428,9 +707,7 @@ def get_paper_ex_ts():
     https://github.com/tskit-dev/tskit/blob/61a844a/c/tests/testlib.c#L55-L96
 
     :returns: Tree sequence
-
     """
-
     nodes = """\
     is_sample time population individual
     1  0       -1   0
@@ -486,10 +763,14 @@ def get_paper_ex_ts():
     )
 
 
+# fmt:off
 # true r2 values for the tree sequence from the tskit paper
 PAPER_EX_TRUTH_MATRIX = np.array(
-    [[1.0, 0.11111111, 0.11111111], [0.11111111, 1.0, 1.0], [0.11111111, 1.0, 1.0]]
+    [[1.0,        0.11111111, 0.11111111],  # noqa: E241
+     [0.11111111, 1.0,        1.0],  # noqa: E241
+     [0.11111111, 1.0,        1.0]]  # noqa: E241
 )
+# fmt:on
 
 
 def get_all_site_partitions(n):
@@ -499,9 +780,8 @@ def get_all_site_partitions(n):
     TODO: only works for square matricies, would need to generate two lists of
     partitions to get around this
 
-    :param n: length of one dimension of the !square! matrix
-    :returns: combinations of partitions
-
+    :param n: length of one dimension of the !square! matrix.
+    :returns: combinations of partitions.
     """
     parts = []
     for part in tskit.combinatorics.rule_asc(3):
@@ -524,13 +804,14 @@ def assert_slice_allclose(a, b):
     see if the subset matches the slice out of the truth matrix. Raise if
     arrays not close.
 
-    :param a: row sites
-    :param b: column sites
-
+    :param a: row sites.
+    :param b: column sites.
     """
     ts = get_paper_ex_ts()
     np.testing.assert_allclose(
-        two_site_general_stat(ts, r2, "hap_weighted", polarized=False, sites=[a, b]),
+        two_locus_count_stat(
+            ts, r2_summary_func, norm_hap_weighted, False, sites=[a, b]
+        ),
         PAPER_EX_TRUTH_MATRIX[a[0] : a[-1] + 1, b[0] : b[-1] + 1],
     )
 
@@ -547,13 +828,7 @@ def test_subset(partition):
 
     :param partition: length 2 list of [row_sites, column_sites]. This is a
                       pytest fixture for a parametrized function.
-
     """
     a, b = partition
     print(a, b)
     assert_slice_allclose(a, b)
-
-
-# two_site_general_stat(
-#     get_paper_ex_ts(), r2, 'hap_weighted', polarized=False, sites=[[1], [1, 2]]
-# )
