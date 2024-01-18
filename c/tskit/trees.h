@@ -1855,29 +1855,6 @@ bool tsk_tree_position_prev(tsk_tree_position_t *self);
 int tsk_tree_position_seek_forward(tsk_tree_position_t *self, tsk_id_t index);
 int tsk_tree_position_seek_backward(tsk_tree_position_t *self, tsk_id_t index);
 
-// These are in the header for testing purposes only
-struct stat_matrix_site_indicies {
-    tsk_size_t n_sites; // Total number of sites specified
-    tsk_size_t n_shr;   // Number of sites shared between rows and columns
-    tsk_size_t n_rdiff; // Number of row sites that differ from columns
-    tsk_size_t n_cdiff; // Number of column sites that differ from rows
-
-    tsk_id_t *sites;          // Union of all site ids specified
-    tsk_size_t *rshr_matrix;  // Index of result matrix for shared row sites
-    tsk_size_t *cshr_matrix;  // Index of result matrix for shared col sites
-    tsk_size_t *rdiff_matrix; // Index of result matrix for diff row sites
-    tsk_size_t *cdiff_matrix; // Index of result matrix for diff colsites
-    tsk_size_t *shr_sites;    // Index of the sites array for shared sites
-    tsk_size_t *rdiff_sites;  // Index of the sites array for diff row sites
-    tsk_size_t *cdiff_sites;  // Index of the sites array for diff col sites
-};
-
-void stat_matrix_site_indicies_free(struct stat_matrix_site_indicies *idx);
-
-int get_stat_matrix_site_indices(tsk_size_t n_sites, tsk_size_t n_rows,
-    const tsk_id_t *row_sites, tsk_size_t n_cols, const tsk_id_t *col_sites,
-    struct stat_matrix_site_indicies *idx);
-
 #ifdef __cplusplus
 }
 #endif

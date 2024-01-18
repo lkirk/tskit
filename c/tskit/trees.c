@@ -2355,64 +2355,29 @@ out:
     return ret;
 }
 
-void
-stat_matrix_site_indicies_free(struct stat_matrix_site_indicies *idx)
+static void
+get_site_row_col_indices(tsk_size_t n_rows, const tsk_id_t *row_sites, tsk_size_t n_cols,
+    const tsk_id_t *col_sites, tsk_id_t *sites, tsk_size_t *n_sites, tsk_size_t *row_idx,
+    tsk_size_t *col_idx)
 {
-    tsk_safe_free(idx->sites);
-    tsk_safe_free(idx->rshr_matrix);
-    tsk_safe_free(idx->cshr_matrix);
-    tsk_safe_free(idx->rdiff_matrix);
-    tsk_safe_free(idx->cdiff_matrix);
-    tsk_safe_free(idx->shr_sites);
-    tsk_safe_free(idx->rdiff_sites);
-    tsk_safe_free(idx->cdiff_sites);
-}
-
-int
-get_stat_matrix_site_indices(tsk_size_t n_sites, tsk_size_t n_rows,
-    const tsk_id_t *row_sites, tsk_size_t n_cols, const tsk_id_t *col_sites,
-    struct stat_matrix_site_indicies *idx)
-{
-    int ret = 0;
     tsk_size_t r = 0, c = 0, s = 0;
-    tsk_size_t n_cdiff = 0, n_rdiff = 0, n_shr = 0;
-    tsk_id_t *sites = tsk_malloc(n_sites * sizeof(*sites));
-    tsk_size_t *rshr = tsk_malloc(n_sites * sizeof(*rshr));
-    tsk_size_t *cshr = tsk_malloc(n_sites * sizeof(*cshr));
-    tsk_size_t *rdiff = tsk_malloc(n_sites * sizeof(*rdiff));
-    tsk_size_t *cdiff = tsk_malloc(n_sites * sizeof(*cdiff));
-    tsk_size_t *shr_idx = tsk_malloc(n_sites * sizeof(*shr_idx));
-    tsk_size_t *rdiff_idx = tsk_malloc(n_sites * sizeof(*rdiff_idx));
-    tsk_size_t *cdiff_idx = tsk_malloc(n_sites * sizeof(*cdiff_idx));
-
-    if (sites == NULL || rshr == NULL || cshr == NULL || rdiff == NULL || cdiff == NULL
-        || shr_idx == NULL || rdiff_idx == NULL || cdiff_idx == NULL) {
-        ret = TSK_ERR_NO_MEMORY;
-        goto out;
-    }
 
     // Iterate rows and columns until we've exhaused one of the lists
     while ((r < n_rows) && (c < n_cols)) {
         if (row_sites[r] < col_sites[c]) {
-            rdiff_idx[n_rdiff] = s;
-            rdiff[n_rdiff] = r;
             sites[s] = row_sites[r];
-            n_rdiff++;
+            row_idx[r] = s;
             s++;
             r++;
         } else if (col_sites[c] < row_sites[r]) {
-            cdiff_idx[n_cdiff] = s;
-            cdiff[n_cdiff] = c;
             sites[s] = col_sites[c];
-            n_cdiff++;
+            col_idx[c] = s;
             s++;
             c++;
         } else { // row == col
-            rshr[n_shr] = r;
-            cshr[n_shr] = c;
-            shr_idx[n_shr] = s;
             sites[s] = row_sites[r];
-            n_shr++;
+            col_idx[c] = s;
+            row_idx[r] = s;
             s++;
             r++;
             c++;
@@ -2421,53 +2386,32 @@ get_stat_matrix_site_indices(tsk_size_t n_sites, tsk_size_t n_rows,
 
     // If there are any items remaining in the other list, drain it
     while (r < n_rows) {
-        rdiff[n_rdiff] = r;
-        rdiff_idx[n_rdiff] = s;
         sites[s] = row_sites[r];
-        n_rdiff++;
+        row_idx[r] = s;
         s++;
         r++;
     }
     while (c < n_cols) {
-        cdiff[n_cdiff] = c;
-        cdiff_idx[n_cdiff] = s;
         sites[s] = col_sites[c];
-        n_cdiff++;
+        col_idx[c] = s;
         s++;
         c++;
     }
-
-    idx->n_sites = s;
-    idx->n_shr = n_shr;
-    idx->n_rdiff = n_rdiff;
-    idx->n_cdiff = n_cdiff;
-    idx->sites = sites;
-    idx->rshr_matrix = rshr;
-    idx->cshr_matrix = cshr;
-    idx->rdiff_matrix = rdiff;
-    idx->cdiff_matrix = cdiff;
-    idx->shr_sites = shr_idx;
-    idx->rdiff_sites = rdiff_idx;
-    idx->cdiff_sites = cdiff_idx;
-
-out:
-    return ret;
+    *n_sites = s;
 }
 
 static int
-get_mutation_samples(const tsk_treeseq_t *ts,
-    const struct stat_matrix_site_indicies *idx, tsk_size_t *num_alleles,
-    tsk_bit_array_t *allele_samples)
+get_mutation_samples(const tsk_treeseq_t *ts, const tsk_id_t *sites, tsk_size_t n_sites,
+    tsk_size_t *num_alleles, tsk_bit_array_t *allele_samples)
 {
     int ret = 0;
     const tsk_flags_t *restrict flags = ts->tables->nodes.flags;
     const tsk_size_t num_samples = tsk_treeseq_get_num_samples(ts);
     const tsk_size_t *restrict site_muts_len = ts->site_mutations_length;
     const tsk_site_t *restrict site;
-    tsk_site_t first_site;
     tsk_tree_t tree;
     tsk_bit_array_t all_samples_bits, mut_samples, mut_samples_row, out_row;
-    tsk_size_t max_muts_len, mut_offset, num_nodes, curr_site, s, m, n;
+    tsk_size_t max_muts_len, site_offset, num_nodes, site_idx, s, m, n;
     tsk_id_t node, *nodes = NULL;
     void *tmp_nodes;
 
@@ -2475,11 +2419,12 @@ get_mutation_samples(const tsk_treeseq_t *ts,
     tsk_memset(&all_samples_bits, 0, sizeof(all_samples_bits));
 
     max_muts_len = 0;
-    for (s = 0; s < idx->n_sites; s++) {
-        if (site_muts_len[idx->sites[s]] > max_muts_len) {
-            max_muts_len = site_muts_len[idx->sites[s]];
+    for (s = 0; s < n_sites; s++) {
+        if (site_muts_len[sites[s]] > max_muts_len) {
+            max_muts_len = site_muts_len[sites[s]];
         }
     }
+    // Allocate a bit array of size max alleles for all sites
     ret = tsk_bit_array_init(&mut_samples, num_samples, max_muts_len);
     if (ret != 0) {
         goto out;
@@ -2488,24 +2433,19 @@ get_mutation_samples(const tsk_treeseq_t *ts,
     if (ret != 0) {
         goto out;
     }
+    get_all_samples_bits(&all_samples_bits, num_samples);
     ret = tsk_tree_init(&tree, ts, TSK_NO_SAMPLE_COUNTS);
     if (ret != 0) {
         goto out;
     }
-
-    // A future improvement could get a union of all sample sets
-    // instead of all samples
-    get_all_samples_bits(&all_samples_bits, num_samples);
     tree.index = -1; // TODO: forcing seek_from_null
-    ret = tsk_treeseq_get_site(ts, idx->sites[0], &first_site);
-    if (ret != 0) {
-        goto out; // Technically impossible, since we do bounds checking on site idx
-    }
-    mut_offset = 0;
-    curr_site = 0;
+
     // Traverse down each tree, recording all samples below each mutation. We perform one
-    // preorder traversal per mutation.
-    for (ret = tsk_tree_seek(&tree, first_site.position, 0);
+    // preorder traversal per mutation. We start at the tree containing the first site of
+    // interest. We rely on our sites bounds checking to access the first site position
+    site_offset = 0;
+    site_idx = 0;
+    for (ret = tsk_tree_seek(&tree, ts->tables->sites.position[sites[0]], 0);
          ret == TSK_TREE_OK || ret == 0; ret = tsk_tree_next(&tree)) {
         tmp_nodes = tsk_realloc(nodes, tsk_tree_get_size_bound(&tree) * sizeof(*nodes));
         if (tmp_nodes == NULL) {
@@ -2516,11 +2456,11 @@ get_mutation_samples(const tsk_treeseq_t *ts,
         for (s = 0; s < tree.sites_length; s++) {
             site = &tree.sites[s];
             // Skip sites that are not in our sites index
-            if (site->id != idx->sites[curr_site]) {
+            if (site->id != sites[site_idx]) {
                 continue;
             }
 
-            tsk_bit_array_get_row(allele_samples, mut_offset, &out_row);
+            tsk_bit_array_get_row(allele_samples, site_offset, &out_row);
             tsk_bit_array_add(&out_row, &all_samples_bits);
 
             // Zero out results before the start of each iteration
@@ -2540,14 +2480,13 @@ get_mutation_samples(const tsk_treeseq_t *ts,
                             &mut_samples_row, (tsk_bit_array_value_t) node);
                     }
                 }
-                mut_offset++;
             }
-            mut_offset++; // One more for the ancestral allele
-            get_allele_samples(site, &mut_samples, &out_row, &(num_alleles[curr_site]));
-            curr_site++;
+            site_offset += site->mutations_length + 1;
+            get_allele_samples(site, &mut_samples, &out_row, &(num_alleles[site_idx]));
+            site_idx++;
 
             // If we've hit the last site in our index, finish up
-            if (curr_site >= idx->n_sites) {
+            if (site_idx >= n_sites) {
                 ret = 0;
                 goto out;
             }
@@ -2565,110 +2504,82 @@ out:
 static int
 tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
     const tsk_bit_array_t *sample_sets, tsk_size_t result_dim, general_stat_func_t *f,
-    sample_count_stat_params_t *f_params, norm_func_t *norm_f, tsk_size_t num_site_rows,
-    const tsk_id_t *row_sites, tsk_size_t num_site_cols, const tsk_id_t *col_sites,
+    sample_count_stat_params_t *f_params, norm_func_t *norm_f, tsk_size_t n_rows,
+    const tsk_id_t *row_sites, tsk_size_t n_cols, const tsk_id_t *col_sites,
     tsk_flags_t options, double *result)
 {
 
     int ret = 0;
     tsk_bit_array_t allele_samples, c_state, r_state;
     bool polarised = false;
-    tsk_id_t site_id;
-    tsk_size_t r, c, k, s, inner, num_alleles_cumsum;
+    tsk_id_t *sites;
+    tsk_size_t r, c, s, n_alleles, n_sites, *row_idx, *col_idx;
     double *result_row;
-    struct stat_matrix_site_indicies idx;
     const tsk_size_t num_samples = self->num_samples;
-    tsk_size_t *num_alleles, *site_offsets;
-    tsk_size_t result_row_len = num_site_cols * result_dim;
-    // tmp needed for reflecting results across axis
-    double *result_row_tmp;
+    tsk_size_t *num_alleles = NULL, *site_offsets = NULL;
+    tsk_size_t result_row_len = n_cols * result_dim;
 
     tsk_memset(&allele_samples, 0, sizeof(allele_samples));
 
-    if (options & TSK_STAT_POLARISED) {
-        polarised = true;
+    sites = tsk_malloc(self->tables->sites.num_rows * sizeof(*sites));
+    row_idx = tsk_malloc(self->tables->sites.num_rows * sizeof(*row_idx));
+    col_idx = tsk_malloc(self->tables->sites.num_rows * sizeof(*col_idx));
+    if (sites == NULL || row_idx == NULL || col_idx == NULL) {
+        ret = TSK_ERR_NO_MEMORY;
+        goto out;
     }
+    get_site_row_col_indices(
+        n_rows, row_sites, n_cols, col_sites, sites, &n_sites, row_idx, col_idx);
 
-    get_stat_matrix_site_indices(self->tables->sites.num_rows, num_site_rows, row_sites,
-        num_site_cols, col_sites, &idx);
-
-    num_alleles = tsk_malloc(idx.n_sites * sizeof(*num_alleles));
-    site_offsets = tsk_malloc(idx.n_sites * sizeof(*site_offsets));
+    // We rely on n_sites to allocate these arrays, they're initialized to NULL for safe
+    // deallocation if the previous allocation fails
+    num_alleles = tsk_malloc(n_sites * sizeof(*num_alleles));
+    site_offsets = tsk_malloc(n_sites * sizeof(*site_offsets));
     if (num_alleles == NULL || site_offsets == NULL) {
         ret = TSK_ERR_NO_MEMORY;
         goto out;
     }
 
-    num_alleles_cumsum = 0;
-    s = 0;
-    for (s = 0; s < idx.n_sites; s++) {
-        site_id = idx.sites[s];
-        site_offsets[s] = num_alleles_cumsum;
-        num_alleles_cumsum += self->site_mutations_length[site_id] + 1;
+    n_alleles = 0;
+    for (s = 0; s < n_sites; s++) {
+        site_offsets[s] = n_alleles;
+        n_alleles += self->site_mutations_length[sites[s]] + 1;
     }
-    ret = tsk_bit_array_init(&allele_samples, num_samples, num_alleles_cumsum);
+    ret = tsk_bit_array_init(&allele_samples, num_samples, n_alleles);
     if (ret != 0) {
         goto out;
     }
-    ret = get_mutation_samples(self, &idx, num_alleles, &allele_samples);
+    ret = get_mutation_samples(self, sites, n_sites, num_alleles, &allele_samples);
     if (ret != 0) {
         goto out;
     }
 
-#define COMPUTE_STAT_FOR_MATRIX_IDX(c_id, r_idx, c_idx)                                 \
-    do {                                                                                \
-        tsk_bit_array_get_row(&allele_samples, site_offsets[r_idx], &r_state);          \
-        tsk_bit_array_get_row(&allele_samples, site_offsets[c_idx], &c_state);          \
-        ret = compute_general_two_site_stat_result(&r_state, &c_state,                  \
-            num_alleles[r_idx], num_alleles[c_idx], num_samples, state_dim,             \
-            sample_sets, result_dim, f, f_params, norm_f, polarised,                    \
-            &(result_row[(c_id) *result_dim]));                                         \
-        if (ret != 0) {                                                                 \
-            goto out;                                                                   \
-        }                                                                               \
-    } while (0);
-
-    for (r = 0; r < idx.n_rdiff; r++) {
-        result_row = GET_2D_ROW(result, result_row_len, idx.rdiff_matrix[r]);
-        for (c = 0; c < idx.n_cdiff; c++) {
-            COMPUTE_STAT_FOR_MATRIX_IDX(
-                idx.cdiff_matrix[c], idx.rdiff_sites[r], idx.cdiff_sites[c]);
-        }
-        for (c = 0; c < idx.n_shr; c++) {
-            COMPUTE_STAT_FOR_MATRIX_IDX(
-                idx.cshr_matrix[c], idx.rdiff_sites[r], idx.shr_sites[c]);
-        }
-    }
-    for (r = 0; r < idx.n_shr; r++) {
-        result_row = GET_2D_ROW(result, result_row_len, idx.rshr_matrix[r]);
-        for (c = 0; c < idx.n_cdiff; c++) {
-            COMPUTE_STAT_FOR_MATRIX_IDX(
-                idx.cdiff_matrix[c], idx.shr_sites[r], idx.cdiff_sites[c]);
-        }
+    if (options & TSK_STAT_POLARISED) {
+        polarised = true;
     }
 
-    inner = 0;
-    for (r = 0; r < idx.n_shr; r++) {
-        result_row = GET_2D_ROW(result, result_row_len, idx.rshr_matrix[r]);
-        for (c = inner; c < idx.n_shr; c++) {
-            COMPUTE_STAT_FOR_MATRIX_IDX(
-                idx.cshr_matrix[c], idx.shr_sites[r], idx.shr_sites[c]);
-            // If we're on an off-diagonal of a symmetric part of the matrix, reflect
-            if (row_sites[idx.rshr_matrix[r]] != col_sites[idx.cshr_matrix[c]]) {
-                result_row_tmp = GET_2D_ROW(result, result_row_len, idx.rshr_matrix[c]);
-                for (k = 0; k < result_dim; k++) {
-                    result_row_tmp[(idx.cshr_matrix[r] * result_dim) + k]
-                        = result_row[(idx.cshr_matrix[c] * result_dim) + k];
-                }
+    // For each row/column pair, fill in the sample set in the result matrix.
+    for (r = 0; r < n_rows; r++) {
+        result_row = GET_2D_ROW(result, result_row_len, r);
+        for (c = 0; c < n_cols; c++) {
+            tsk_bit_array_get_row(&allele_samples, site_offsets[row_idx[r]], &r_state);
+            tsk_bit_array_get_row(&allele_samples, site_offsets[col_idx[c]], &c_state);
+            ret = compute_general_two_site_stat_result(&r_state, &c_state,
+                num_alleles[row_idx[r]], num_alleles[col_idx[c]], num_samples, state_dim,
+                sample_sets, result_dim, f, f_params, norm_f, polarised,
+                &(result_row[c * result_dim]));
+            if (ret != 0) {
+                goto out;
             }
         }
-        inner++;
     }
 
 out:
+    tsk_safe_free(sites);
+    tsk_safe_free(row_idx);
+    tsk_safe_free(col_idx);
     tsk_safe_free(num_alleles);
     tsk_safe_free(site_offsets);
-    stat_matrix_site_indicies_free(&idx);
     tsk_bit_array_free(&allele_samples);
     return ret;
 }
@@ -2785,14 +2696,6 @@ tsk_treeseq_two_locus_count_stat(const tsk_treeseq_t *self, tsk_size_t num_sampl
     if (ret != 0) {
         goto out;
     }
-    ret = check_sites(row_sites, out_rows, self->tables->sites.num_rows);
-    if (ret != 0) {
-        goto out;
-    }
-    ret = check_sites(col_sites, out_cols, self->tables->sites.num_rows);
-    if (ret != 0) {
-        goto out;
-    }
     ret = sample_sets_to_bit_array(
         self, sample_set_sizes, sample_sets, num_sample_sets, &sample_sets_bits);
     if (ret != 0) {
@@ -2800,6 +2703,14 @@ tsk_treeseq_two_locus_count_stat(const tsk_treeseq_t *self, tsk_size_t num_sampl
     }
 
     if (stat_site) {
+        ret = check_sites(row_sites, out_rows, self->tables->sites.num_rows);
+        if (ret != 0) {
+            goto out;
+        }
+        ret = check_sites(col_sites, out_cols, self->tables->sites.num_rows);
+        if (ret != 0) {
+            goto out;
+        }
         ret = tsk_treeseq_two_site_count_stat(self, state_dim, &sample_sets_bits,
             result_dim, f, &f_params, norm_f, out_rows, row_sites, out_cols, col_sites,
             options, result);
