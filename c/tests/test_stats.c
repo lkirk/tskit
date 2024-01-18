@@ -2450,6 +2450,7 @@ test_paper_ex_two_site_subset(void)
     tsk_id_t col_sites[2] = { 1, 2 };
     double result_truth_1[4] = { 0.1111111111111111, 0.1111111111111111, 1, 1 };
     double result_truth_2[1] = { 0.1111111111111111 };
+    double result_truth_3[4] = { 0.1111111111111111, 1, 0.1111111111111111, 1 };
 
     tsk_treeseq_from_text(&ts, 10, paper_ex_nodes, paper_ex_edges, NULL, paper_ex_sites,
         paper_ex_mutations, paper_ex_individuals, NULL, 0);
@@ -2476,6 +2477,17 @@ test_paper_ex_two_site_subset(void)
         row_sites, 1, col_sites, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     ASSERT_ARRAYS_ALMOST_EQUAL(result_size * num_sample_sets, result, result_truth_2);
+
+    result_size = 2 * 2;
+    tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
+    row_sites[0] = 1;
+    row_sites[1] = 2;
+    col_sites[0] = 0;
+    col_sites[1] = 1;
+    ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, 2,
+        row_sites, 2, col_sites, 0, result);
+    CU_ASSERT_EQUAL_FATAL(ret, 0);
+    ASSERT_ARRAYS_ALMOST_EQUAL(result_size * num_sample_sets, result, result_truth_3);
 
     tsk_treeseq_free(&ts);
 }
