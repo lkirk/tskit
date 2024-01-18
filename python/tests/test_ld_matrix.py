@@ -1,6 +1,9 @@
 import io
-from itertools import combinations_with_replacement, permutations
-from typing import Any, Callable, Generator, Self
+from itertools import combinations_with_replacement
+from itertools import permutations
+from typing import Any
+from typing import Callable
+from typing import Generator
 
 import numpy as np
 import pytest
@@ -20,14 +23,14 @@ class BitSet:
     DTYPE = np.uint32  # Data type to be stored in the bitset
     CHUNK_SIZE = DTYPE(32)  # Size of integer field to store the data in
 
-    def __init__(self: Self, num_bits: int, length: int) -> None:
+    def __init__(self: "BitSet", num_bits: int, length: int) -> None:
         self.row_len = num_bits // self.CHUNK_SIZE
         self.row_len += 1 if num_bits % self.CHUNK_SIZE else 0
         self.row_len = int(self.row_len)
         self.data = np.zeros(self.row_len * length, dtype=self.DTYPE)
 
     def intersect(
-        self: Self, self_row: int, other: Self, other_row: int, out: Self
+        self: "BitSet", self_row: int, other: "BitSet", other_row: int, out: "BitSet"
     ) -> None:
         """Intersect a row from the current array instance with a row from
         another BitSet and store it in an output bit array of length 1.
@@ -46,7 +49,9 @@ class BitSet:
         for i in range(self.row_len):
             out.data[i] = self.data[i + self_offset] & other.data[i + other_offset]
 
-    def difference(self: Self, self_row: int, other: Self, other_row: int) -> None:
+    def difference(
+        self: "BitSet", self_row: int, other: "BitSet", other_row: int
+    ) -> None:
         """Take the difference between the current array instance and another
         array instance. Store the result in the specified row of the current
         instance.
@@ -61,7 +66,7 @@ class BitSet:
         for i in range(self.row_len):
             self.data[i + self_offset] &= ~(other.data[i + other_offset])
 
-    def union(self: Self, self_row: int, other: Self, other_row: int) -> None:
+    def union(self: "BitSet", self_row: int, other: "BitSet", other_row: int) -> None:
         """Take the union between the current array instance and another
         array instance. Store the result in the specified row of the current
         instance.
@@ -76,7 +81,7 @@ class BitSet:
         for i in range(self.row_len):
             self.data[i + self_offset] |= other.data[i + other_offset]
 
-    def add(self: Self, row: int, bit: int) -> None:
+    def add(self: "BitSet", row: int, bit: int) -> None:
         """Add a single bit to the row of a bit array
 
         :param row: Row to be modified.
@@ -86,7 +91,7 @@ class BitSet:
         i = bit // self.CHUNK_SIZE
         self.data[i + offset] |= self.DTYPE(1) << (bit - (self.CHUNK_SIZE * i))
 
-    def get_items(self: Self, row: int) -> Generator[int, None, None]:
+    def get_items(self: "BitSet", row: int) -> Generator[int, None, None]:
         """Get the items stored in the row of a bitset
 
         :param row: Row from the array to list from.
@@ -98,7 +103,7 @@ class BitSet:
                 if self.data[i + offset] & (self.DTYPE(1) << item):
                     yield item + (i * self.CHUNK_SIZE)
 
-    def contains(self: Self, row: int, bit: int) -> bool:
+    def contains(self: "BitSet", row: int, bit: int) -> bool:
         """Test if a bit is contained within a bit array row
 
         :param row: Row to test.
@@ -111,7 +116,7 @@ class BitSet:
             self.data[i + offset] & (self.DTYPE(1) << (bit - (self.CHUNK_SIZE * i)))
         )
 
-    def count(self: Self, row: int) -> int:
+    def count(self: "BitSet", row: int) -> int:
         """Count all of the set bits in a specified row. Uses a SWAR
         algorithm to count in parallel with a constant number (12) of operations.
 
@@ -137,7 +142,7 @@ class BitSet:
 
         return count
 
-    def count_naive(self: Self, row: int) -> int:
+    def count_naive(self: "BitSet", row: int) -> int:
         """Naive counting algorithm implementing the same functionality as the count
         method. Useful for testing correctness, uses the same number of operations
         as set bits.
