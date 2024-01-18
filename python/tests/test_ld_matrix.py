@@ -3,7 +3,10 @@ from itertools import combinations_with_replacement
 from itertools import permutations
 from typing import Any
 from typing import Callable
+from typing import Dict
 from typing import Generator
+from typing import List
+from typing import Tuple
 
 import numpy as np
 import pytest
@@ -170,7 +173,7 @@ def norm_hap_weighted(
     n_a: int,
     n_b: int,
     result: np.ndarray,
-    params: dict[str, Any],
+    params: Dict[str, Any],
 ) -> None:
     """Create a vector of normalizing coefficients, length of the number of
     sample sets. In this normalization strategy, we weight each allele's
@@ -196,7 +199,7 @@ def norm_total_weighted(
     n_a: int,
     n_b: int,
     result: np.ndarray,
-    params: dict[str, Any],
+    params: Dict[str, Any],
 ) -> None:
     """Create a vector of normalizing coefficients, length of the number of
     sample sets. In this normalization strategy, we weight each allele's
@@ -242,8 +245,8 @@ def check_sites(sites, max_sites):
 
 
 def get_site_row_col_indices(
-    row_sites: list[int], col_sites: list[int]
-) -> tuple[list[int], list[int], list[int]]:
+    row_sites: List[int], col_sites: List[int]
+) -> Tuple[List[int], List[int], List[int]]:
     """Co-iterate over the row and column sites, keeping a sorted union of
     site values and an index into the unique list of sites for both the row
     and column sites. This function produces a list of sites of interest and
@@ -359,8 +362,8 @@ def get_allele_samples(
 
 
 def get_mutation_samples(
-    ts: tskit.TreeSequence, sites: list[int]
-) -> tuple[np.ndarray, np.ndarray, BitSet]:
+    ts: tskit.TreeSequence, sites: List[int]
+) -> Tuple[np.ndarray, np.ndarray, BitSet]:
     """For a given set of sites, generate a BitSet of all samples posessing
     each allelic state for each site. This includes the ancestral state, along
     with any mutations contained in the site.
@@ -435,9 +438,9 @@ def compute_general_two_site_stat_result(
     allele_samples: BitSet,
     state_dim: int,
     sample_sets: BitSet,
-    func: Callable[[int, np.ndarray, np.ndarray, dict[str, Any]], None],
-    norm_func: Callable[[int, np.ndarray, int, int, np.ndarray, dict[str, Any]], None],
-    params: dict[str, Any],
+    func: Callable[[int, np.ndarray, np.ndarray, Dict[str, Any]], None],
+    norm_func: Callable[[int, np.ndarray, int, int, np.ndarray, Dict[str, Any]], None],
+    params: Dict[str, Any],
     polarised: bool,
     result: np.ndarray,
 ) -> None:
@@ -508,13 +511,13 @@ def compute_general_two_site_stat_result(
 
 def two_site_count_stat(
     ts: tskit.TreeSequence,
-    func: Callable[[int, np.ndarray, np.ndarray, dict[str, Any]], None],
-    norm_func: Callable[[int, np.ndarray, int, int, np.ndarray, dict[str, Any]], None],
+    func: Callable[[int, np.ndarray, np.ndarray, Dict[str, Any]], None],
+    norm_func: Callable[[int, np.ndarray, int, int, np.ndarray, Dict[str, Any]], None],
     num_sample_sets: int,
     sample_set_sizes: np.ndarray,
     sample_sets: BitSet,
-    row_sites: list[int],
-    col_sites: list[int],
+    row_sites: List[int],
+    col_sites: List[int],
     polarised: bool,
 ) -> np.ndarray:
     """Outer function that generates the high-level intermediates used in the
@@ -574,8 +577,8 @@ def two_site_count_stat(
 
 
 def sample_sets_to_bit_array(
-    ts: tskit.TreeSequence, sample_sets: list[list[int]]
-) -> tuple[np.ndarray, BitSet]:
+    ts: tskit.TreeSequence, sample_sets: List[List[int]]
+) -> Tuple[np.ndarray, BitSet]:
     """Convert the list of sample ids to a bit array. This function takes
     sample identifiers and maps them to their enumerated integer values, then
     stores these values in a bit array. We produce a BitArray and a numpy
@@ -675,7 +678,7 @@ def two_locus_count_stat(
 
 
 def r2_summary_func(
-    state_dim: int, state: np.ndarray, result: np.ndarray, params: dict[str, Any]
+    state_dim: int, state: np.ndarray, result: np.ndarray, params: Dict[str, Any]
 ) -> None:
     """Summary function for the r2 statistic. We first compute the proportion of
     AB, A, and B haplotypes, then we compute the r2 statistic, storing the outputs
