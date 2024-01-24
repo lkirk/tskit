@@ -2438,15 +2438,20 @@ get_mutation_samples(const tsk_treeseq_t *ts, const tsk_id_t *sites, tsk_size_t 
     if (ret != 0) {
         goto out;
     }
-    tree.index = -1; // TODO: forcing seek_from_null
+    tree.index = -1; // forcing seek_from_null on first seek
+    // We rely on our sites bounds checking to access the first site position
+    ret = tsk_tree_seek(&tree, ts->tables->sites.position[sites[0]], 0);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = TSK_TREE_OK;
 
     // Traverse down each tree, recording all samples below each mutation. We perform one
-    // preorder traversal per mutation. We start at the tree containing the first site of
-    // interest. We rely on our sites bounds checking to access the first site position
+    // preorder traversal per mutation, starting at the tree containing the first site of
+    // interest.
     site_offset = 0;
     site_idx = 0;
-    for (ret = tsk_tree_seek(&tree, ts->tables->sites.position[sites[0]], 0);
-         ret == TSK_TREE_OK || ret == 0; ret = tsk_tree_next(&tree)) {
+    while (ret == TSK_TREE_OK && site_idx < n_sites) {
         tmp_nodes = tsk_realloc(nodes, tsk_tree_get_size_bound(&tree) * sizeof(*nodes));
         if (tmp_nodes == NULL) {
             ret = TSK_ERR_NO_MEMORY;
@@ -2484,13 +2489,8 @@ get_mutation_samples(const tsk_treeseq_t *ts, const tsk_id_t *sites, tsk_size_t 
             site_offset += site->mutations_length + 1;
             get_allele_samples(site, &mut_samples, &out_row, &(num_alleles[site_idx]));
             site_idx++;
-
-            // If we've hit the last site in our index, finish up
-            if (site_idx >= n_sites) {
-                ret = 0;
-                goto out;
-            }
         }
+        ret = tsk_tree_next(&tree);
     }
     // if adding code below, check ret before continuing
 out:
@@ -2498,7 +2498,7 @@ out:
     tsk_tree_free(&tree);
     tsk_bit_array_free(&mut_samples);
     tsk_bit_array_free(&all_samples_bits);
-    return ret;
+    return ret == TSK_TREE_OK ? 0 : ret;
 }
 
 static int
