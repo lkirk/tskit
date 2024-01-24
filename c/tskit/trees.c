@@ -2408,7 +2408,7 @@ get_mutation_samples(const tsk_treeseq_t *ts, const tsk_id_t *sites, tsk_size_t 
     const tsk_flags_t *restrict flags = ts->tables->nodes.flags;
     const tsk_size_t num_samples = tsk_treeseq_get_num_samples(ts);
     const tsk_size_t *restrict site_muts_len = ts->site_mutations_length;
-    const tsk_site_t *restrict site;
+    tsk_site_t site;
     tsk_tree_t tree;
     tsk_bit_array_t all_samples_bits, mut_samples, mut_samples_row, out_row;
     tsk_size_t max_muts_len, site_offset, num_nodes, site_idx, s, m, n;
@@ -2438,61 +2438,48 @@ get_mutation_samples(const tsk_treeseq_t *ts, const tsk_id_t *sites, tsk_size_t 
     if (ret != 0) {
         goto out;
     }
-    tree.index = -1; // forcing seek_from_null on first seek
-    // We rely on our sites bounds checking to access the first site position
-    ret = tsk_tree_seek(&tree, ts->tables->sites.position[sites[0]], 0);
-    if (ret != 0) {
-        goto out;
-    }
-    ret = TSK_TREE_OK;
 
-    // Traverse down each tree, recording all samples below each mutation. We perform one
-    // preorder traversal per mutation, starting at the tree containing the first site of
-    // interest.
+    // For each mutation within each site, perform one preorder traversal to gather
+    // the samples under each mutation's node.
     site_offset = 0;
-    site_idx = 0;
-    while (ret == TSK_TREE_OK && site_idx < n_sites) {
+    for (site_idx = 0; site_idx < n_sites; site_idx++) {
+        tsk_treeseq_get_site(ts, sites[site_idx], &site);
+        ret = tsk_tree_seek(&tree, site.position, 0);
+        if (ret != 0) {
+            goto out;
+        }
         tmp_nodes = tsk_realloc(nodes, tsk_tree_get_size_bound(&tree) * sizeof(*nodes));
         if (tmp_nodes == NULL) {
             ret = TSK_ERR_NO_MEMORY;
             goto out;
         }
         nodes = tmp_nodes;
-        for (s = 0; s < tree.sites_length; s++) {
-            site = &tree.sites[s];
-            // Skip sites that are not in our sites index
-            if (site->id != sites[site_idx]) {
-                continue;
+
+        tsk_bit_array_get_row(allele_samples, site_offset, &out_row);
+        tsk_bit_array_add(&out_row, &all_samples_bits);
+
+        // Zero out results before the start of each iteration
+        tsk_memset(mut_samples.data, 0,
+            mut_samples.size * max_muts_len * sizeof(tsk_bit_array_value_t));
+        for (m = 0; m < site.mutations_length; m++) {
+            tsk_bit_array_get_row(&mut_samples, m, &mut_samples_row);
+            node = site.mutations[m].node;
+            ret = tsk_tree_preorder_from(&tree, node, nodes, &num_nodes);
+            if (ret != 0) {
+                goto out;
             }
-
-            tsk_bit_array_get_row(allele_samples, site_offset, &out_row);
-            tsk_bit_array_add(&out_row, &all_samples_bits);
-
-            // Zero out results before the start of each iteration
-            tsk_memset(mut_samples.data, 0,
-                mut_samples.size * max_muts_len * sizeof(tsk_bit_array_value_t));
-            for (m = 0; m < site->mutations_length; m++) {
-                tsk_bit_array_get_row(&mut_samples, m, &mut_samples_row);
-                node = site->mutations[m].node;
-                ret = tsk_tree_preorder_from(&tree, node, nodes, &num_nodes);
-                if (ret != 0) {
-                    goto out;
-                }
-                for (n = 0; n < num_nodes; n++) {
-                    node = nodes[n];
-                    if (flags[node] & TSK_NODE_IS_SAMPLE) {
-                        tsk_bit_array_add_bit(
-                            &mut_samples_row, (tsk_bit_array_value_t) node);
-                    }
+            for (n = 0; n < num_nodes; n++) {
+                node = nodes[n];
+                if (flags[node] & TSK_NODE_IS_SAMPLE) {
+                    tsk_bit_array_add_bit(
+                        &mut_samples_row, (tsk_bit_array_value_t) node);
                 }
             }
-            site_offset += site->mutations_length + 1;
-            get_allele_samples(site, &mut_samples, &out_row, &(num_alleles[site_idx]));
-            site_idx++;
         }
-        ret = tsk_tree_next(&tree);
+        site_offset += site.mutations_length + 1;
+        get_allele_samples(&site, &mut_samples, &out_row, &(num_alleles[site_idx]));
     }
-    // if adding code below, check ret before continuing
+// if adding code below, check ret before continuing
 out:
     tsk_safe_free(nodes);
     tsk_tree_free(&tree);

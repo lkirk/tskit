@@ -398,33 +398,24 @@ def get_mutation_samples(
 
     site_offset = 0
     site_idx = 0
-    tree = ts.at(ts.site(sites[site_idx]).position)
-    while True:
-        for site in tree.sites():
-            if site.id != sites[site_idx]:
-                continue
-            # initialize the ancestral allele with all samples
-            allele_samples.union(site_offset, all_samples, 0)
-            # store samples for each mutation in mut_samples
-            mut_samples = BitSet(ts.num_samples, len(site.mutations))
-            for m, mut in enumerate(site.mutations):
-                for node in tree.preorder(mut.node):
-                    if ts.node(node).is_sample():
-                        mut_samples.add(m, node)
-            # account for mutation parentage, subtract samples from mutation parents
-            num_alleles[site_idx] = get_allele_samples(
-                site, site_offset, mut_samples, allele_samples
-            )
-            # increment the offset for ancestral + mutation alleles
-            site_offsets[site_idx] = site_offset
-            site_offset += len(site.mutations) + 1
-
-            site_idx += 1
-            if site_idx >= len(sites):
-                return num_alleles, site_offsets, allele_samples
-
-        if not tree.next():
-            break
+    for site_idx, site_id in enumerate(sites):
+        site = ts.site(site_id)
+        tree = ts.at(site.position)
+        # initialize the ancestral allele with all samples
+        allele_samples.union(site_offset, all_samples, 0)
+        # store samples for each mutation in mut_samples
+        mut_samples = BitSet(ts.num_samples, len(site.mutations))
+        for m, mut in enumerate(site.mutations):
+            for node in tree.preorder(mut.node):
+                if ts.node(node).is_sample():
+                    mut_samples.add(m, node)
+        # account for mutation parentage, subtract samples from mutation parents
+        num_alleles[site_idx] = get_allele_samples(
+            site, site_offset, mut_samples, allele_samples
+        )
+        # increment the offset for ancestral + mutation alleles
+        site_offsets[site_idx] = site_offset
+        site_offset += len(site.mutations) + 1
 
     return num_alleles, site_offsets, allele_samples
 
