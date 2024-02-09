@@ -39,7 +39,6 @@ import numpy as np
 import pytest
 
 import tskit
-
 from tests.test_tree_stats import MutatedTopologyExamplesMixin
 from tests.test_tree_stats import StatsTestCase
 
