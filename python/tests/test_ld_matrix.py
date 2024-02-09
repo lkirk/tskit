@@ -40,7 +40,7 @@ import pytest
 
 import tskit
 
-from tests.test_tree_stats MutatedTopologyExamplesMixin
+from tests.test_tree_stats import MutatedTopologyExamplesMixin
 from tests.test_tree_stats import StatsTestCase
 
 
