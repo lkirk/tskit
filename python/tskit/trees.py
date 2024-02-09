@@ -7579,7 +7579,9 @@ class TreeSequence:
             sample_sets = self.samples()
         if stat is None:
             raise ValueError("A stat must be specified.")
-        if sites is not None and any(not hasattr(a, "__getitem__") or isinstance(a, str) for a in sites):
+        if sites is not None and any(
+            not hasattr(a, "__getitem__") or isinstance(a, str) for a in sites
+        ):
             raise ValueError("sites must be a list of lists, tuples, or ndarrays")
 
         if sites is None:

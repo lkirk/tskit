@@ -40,7 +40,8 @@ import pytest
 
 import tskit
 
-from tests.test_tree_stats import StatsTestCase, MutatedTopologyExamplesMixin
+from tests.test_tree_stats MutatedTopologyExamplesMixin
+from tests.test_tree_stats import StatsTestCase
 
 
 class BitSet:
@@ -1078,7 +1079,6 @@ def test_subset_sites_one_list():
             ),
             ts.ld_matrix(sites=[s]),
         )
-
 
 
 @pytest.mark.parametrize(
