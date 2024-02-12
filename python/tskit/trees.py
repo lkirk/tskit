@@ -9349,14 +9349,16 @@ class TreeSequence:
     def ld_matrix(self, sample_sets=None, sites=None, mode="site", stat="r2"):
         r"""
         Compute an LD matrix for a specified two-locus statistic. The default is
-        to compute :math:`r^2` for all sites in the tree sequence. The output
-        matrix can be subset, only making comparisons between two lists of
-        sites. Sample sets can also be used to subset the samples that are
-        counted in the computation of the two-locus statistic.
+        to compute :math:`r^2` for all sites in the tree sequence. The available
+        two-locus statistics are: :math:`r,r^2,D,D^2,D^{\prime},\pi_2,D_z`,
+        specified "r", "r2", "D", "D2", "D_prime", "pi2", "Dz" respectively.
 
-        The available two-locus statistics are:
-        :math:`r,r^2,D,D^2,D^{\prime},\pi_2,D_z`, specified "r", "r2", "D",
-        "D2", "D_prime", "pi2", "Dz" respectively.
+        It's possible to subset the output matrix by specifying rows and column
+        sites. Data will only be gathered and processed for the specified subset
+        of sites.
+
+        Sample sets can also be used to subset the samples that are counted in
+        the computation of the specified two-locus statistic.
 
         Currently, we only implement the "site" mode. Branch mode is coming
         soon.
@@ -9367,7 +9369,7 @@ class TreeSequence:
             compare. If one list is provided, we produce a square matrix that
             compares the list of sites to themselves.
         :param mode: A string giving the "type" of the statistic to be computed
-            (defaults to "site).
+            (defaults to "site").
         :param stat: Two-locus statistic to compute.
         :return: A ndarray with shape equal to (num sample sets, num rows, num
             columns). If there is one sample set, then we return a matrix with shape
