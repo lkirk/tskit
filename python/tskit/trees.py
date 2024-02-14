@@ -7567,70 +7567,6 @@ class TreeSequence:
                 stat = stat[()]
         return stat
 
-    def __two_locus_sample_set_stat(
-        self,
-        ll_method,
-        sample_sets,
-        stat=None,
-        sites=None,
-        mode=None,
-    ):
-        if sample_sets is None:
-            sample_sets = self.samples()
-        if stat is None:
-            raise ValueError("A stat must be specified.")
-        if sites is not None and any(
-            not hasattr(a, "__getitem__") or isinstance(a, str) for a in sites
-        ):
-            raise ValueError("sites must be a list of lists, tuples, or ndarrays")
-
-        if sites is None:
-            row_sites = np.arange(self.num_sites, dtype=np.int32)
-            col_sites = np.arange(self.num_sites, dtype=np.int32)
-        elif len(sites) == 2:
-            row_sites = np.asarray(sites[0], dtype=np.int32)
-            col_sites = np.asarray(sites[1], dtype=np.int32)
-        elif len(sites) == 1:
-            row_sites = np.asarray(sites[0], dtype=np.int32)
-            col_sites = row_sites
-        else:
-            raise ValueError(
-                f"Sites must be a length 1 or 2 list, got a length {len(sites)} list"
-            )
-
-        # First try to convert to a 1D numpy array. If it is, then we strip off
-        # the corresponding dimension from the output.
-        drop_dimension = False
-        try:
-            sample_sets = np.array(sample_sets, dtype=np.uint64)
-        except ValueError:
-            pass
-        else:
-            # If we've successfully converted sample_sets to a 1D numpy array
-            # of integers then drop the dimension
-            if len(sample_sets.shape) == 1:
-                sample_sets = [sample_sets]
-                drop_dimension = True
-
-        sample_set_sizes = np.array(
-            [len(sample_set) for sample_set in sample_sets], dtype=np.uint32
-        )
-        if np.any(sample_set_sizes == 0):
-            raise ValueError("Sample sets must contain at least one element")
-
-        flattened = util.safe_np_int_cast(np.hstack(sample_sets), np.int32)
-
-        stat = ll_method(sample_set_sizes, flattened, row_sites, col_sites, stat, mode)
-
-        if drop_dimension:
-            stat = stat.reshape(stat.shape[:2])
-        else:
-            # Orient the data so that the first dimension is the sample set.
-            # With this orientation, we get one LD matrix per sample set.
-            stat = stat.swapaxes(0, 2).swapaxes(1, 2)
-
-        return stat
-
     def __k_way_sample_set_stat(
         self,
         ll_method,
@@ -9345,44 +9281,6 @@ class TreeSequence:
             unknown = tskit.is_unknown_time(mutations_time)
             mutations_time[unknown] = self.nodes_time[self.mutations_node[unknown]]
             return mutations_time
-
-    def ld_matrix(self, sample_sets=None, sites=None, mode="site", stat="r2"):
-        r"""
-        Compute an LD matrix for a specified two-locus statistic. The default is
-        to compute :math:`r^2` for all sites in the tree sequence. The available
-        two-locus statistics are: :math:`r,r^2,D,D^2,D^{\prime},\pi_2,D_z`,
-        specified "r", "r2", "D", "D2", "D_prime", "pi2", "Dz" respectively.
-
-        It's possible to subset the output matrix by specifying rows and column
-        sites. Data will only be gathered and processed for the specified subset
-        of sites.
-
-        Sample sets can also be used to subset the samples that are counted in
-        the computation of the specified two-locus statistic.
-
-        Currently, we only implement the "site" mode. Branch mode is coming
-        soon.
-
-        :param sample_sets: List of lists of Node IDs, specifying the groups of
-            nodes to compute the statistic with.
-        :param sites: List of one or two lists, specifying which sites to
-            compare. If one list is provided, we produce a square matrix that
-            compares the list of sites to themselves.
-        :param mode: A string giving the "type" of the statistic to be computed
-            (defaults to "site").
-        :param stat: Two-locus statistic to compute.
-        :return: A ndarray with shape equal to (num sample sets, num rows, num
-            columns). If there is one sample set, then we return a matrix with shape
-            equal to (num rows, num columns).
-
-        """
-        return self.__two_locus_sample_set_stat(
-            self._ll_tree_sequence.ld_matrix,
-            sample_sets,
-            stat=stat,
-            sites=sites,
-            mode=mode,
-        )
 
     ############################################
     #
