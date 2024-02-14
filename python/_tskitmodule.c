@@ -10721,7 +10721,6 @@ static PyMethodDef TreeSequence_methods[] = {
         .ml_flags = METH_VARARGS | METH_KEYWORDS,
         .ml_doc = "Computes the pi2 matrix." },
     { NULL } /* Sentinel */
-
 };
 
 static PyGetSetDef TreeSequence_getsetters[] = {
