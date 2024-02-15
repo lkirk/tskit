@@ -1570,6 +1570,18 @@ class TestTreeSequence(LowLevelTestCase, MetadataTestMixin):
         with pytest.raises(TypeError, match="Cannot cast array data"):
             bad_sites = np.array([0, 1, 2], dtype=np.uint32)
             stat_method(sample_set_sizes, sample_sets, bad_sites, col_sites, mode)
+        with pytest.raises(ValueError, match="invalid literal"):
+            bad_sites = ["abadsite", 0, 3, 2]
+            stat_method(sample_set_sizes, sample_sets, row_sites, bad_sites, mode)
+        with pytest.raises(TypeError):
+            bad_sites = [None, 0, 3, 2]
+            stat_method(sample_set_sizes, sample_sets, row_sites, bad_sites, mode)
+        with pytest.raises(TypeError):
+            bad_sites = [{}, 0, 3, 2]
+            stat_method(sample_set_sizes, sample_sets, row_sites, bad_sites, mode)
+        with pytest.raises(TypeError, match="Cannot cast array data"):
+            bad_sites = np.array([0, 1, 2], dtype=np.uint32)
+            stat_method(sample_set_sizes, sample_sets, row_sites, bad_sites, mode)
         # C API errors
         with pytest.raises(tskit.LibraryError, match="TSK_ERR_UNSORTED_SITES"):
             bad_sites = np.array([1, 0, 2], dtype=np.int32)
