@@ -1533,9 +1533,16 @@ class TestTreeSequence(LowLevelTestCase, MetadataTestMixin):
         sample_set_sizes = np.array([len(sample_sets)], dtype=np.uint32)
         row_sites = np.arange(ts.get_num_sites(), dtype=np.int32)
         col_sites = row_sites
+        row_sites_list = list(range(ts.get_num_sites()))
+        col_sites_list = row_sites_list
 
         # happy path
         a = stat_method(sample_set_sizes, sample_sets, row_sites, col_sites, mode)
+        assert a.shape == (10, 10, 1)
+
+        a = stat_method(
+            sample_set_sizes, sample_sets, row_sites_list, col_sites_list, mode
+        )
         assert a.shape == (10, 10, 1)
 
         # CPython API errors
@@ -1551,12 +1558,18 @@ class TestTreeSequence(LowLevelTestCase, MetadataTestMixin):
             stat_method(
                 sample_set_sizes, sample_sets, row_sites, col_sites, mode, "abc"
             )
+        with pytest.raises(ValueError, match="invalid literal"):
+            bad_sites = ["abadsite", 0, 3, 2]
+            stat_method(sample_set_sizes, sample_sets, bad_sites, col_sites, mode)
+        with pytest.raises(TypeError, match="Cannot cast array data"):
+            bad_sites = np.array([0, 1, 2], dtype=np.uint32)
+            stat_method(sample_set_sizes, sample_sets, bad_sites, col_sites, mode)
         # C API errors
         with pytest.raises(tskit.LibraryError, match="TSK_ERR_UNSORTED_SITES"):
-            bad_sites = np.array([1, 0, 2], dtype=np.uint32)
+            bad_sites = np.array([1, 0, 2], dtype=np.int32)
             stat_method(sample_set_sizes, sample_sets, bad_sites, col_sites, mode)
         with pytest.raises(tskit.LibraryError, match="TSK_ERR_UNSORTED_SITES"):
-            bad_sites = np.array([1, 0, 2], dtype=np.uint32)
+            bad_sites = np.array([1, 0, 2], dtype=np.int32)
             stat_method(sample_set_sizes, sample_sets, row_sites, bad_sites, mode)
         with pytest.raises(
             _tskit.LibraryError, match="TSK_ERR_INSUFFICIENT_SAMPLE_SETS"
