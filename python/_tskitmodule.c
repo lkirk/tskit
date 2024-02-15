@@ -9934,6 +9934,8 @@ TreeSequence_ld_matrix(TreeSequence *self, PyObject *args, PyObject *kwds,
     ret = (PyObject *) result_matrix;
     result_matrix = NULL;
 out:
+    Py_XDECREF(row_sites_array);
+    Py_XDECREF(col_sites_array);
     Py_XDECREF(sample_set_sizes_array);
     Py_XDECREF(sample_sets_array);
     Py_XDECREF(result_matrix);
