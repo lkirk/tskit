@@ -1116,11 +1116,7 @@ def test_ld_matrix(ts, stat):
 
 @pytest.mark.parametrize(
     "ts",
-    [
-        ts
-        for ts in get_example_tree_sequences()
-        if ts.id in {"no_samples", "empty_ts"}
-    ],
+    [ts for ts in get_example_tree_sequences() if ts.id in {"no_samples", "empty_ts"}],
 )
 def test_ld_empty_examples(ts):
     with pytest.raises(ValueError, match="at least one element"):
