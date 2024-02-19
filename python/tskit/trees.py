@@ -7579,7 +7579,7 @@ class TreeSequence:
         if sites is not None and any(
             not hasattr(a, "__getitem__") or isinstance(a, str) for a in sites
         ):
-            raise ValueError("sites must be a list of lists, tuples, or ndarrays")
+            raise ValueError("Sites must be a list of lists, tuples, or ndarrays")
 
         if sites is None:
             row_sites = np.arange(self.num_sites, dtype=np.int32)
