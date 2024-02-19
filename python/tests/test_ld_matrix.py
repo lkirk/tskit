@@ -738,15 +738,6 @@ def r2_summary_func(
 def D_summary_func(
     state_dim: int, state: np.ndarray, result: np.ndarray, params: Dict[str, Any]
 ) -> None:
-    """Summary function for the D statistic. We first compute the proportion of
-    AB, A, and B haplotypes, then we compute the D statistic, storing the outputs
-    in the result vector, one entry per sample set.
-
-    :param state_dim: Number of sample sets.
-    :param state: Counts of 3 haplotype configurations for each sample set.
-    :param result: Vector of length state_dim to store the results in.
-    :param params: Parameters for the summary function.
-    """
     sample_set_sizes = params["sample_set_sizes"]
     for k in range(state_dim):
         n = sample_set_sizes[k]
@@ -780,15 +771,6 @@ def D2_summary_func(
 def D_prime_summary_func(
     state_dim: int, state: np.ndarray, result: np.ndarray, params: Dict[str, Any]
 ) -> None:
-    """Summary function for the D_prime statistic. We first compute the proportion of
-    AB, A, and B haplotypes, then we compute the D_prime statistic, storing the outputs
-    in the result vector, one entry per sample set.
-
-    :param state_dim: Number of sample sets.
-    :param state: Counts of 3 haplotype configurations for each sample set.
-    :param result: Vector of length state_dim to store the results in.
-    :param params: Parameters for the summary function.
-    """
     sample_set_sizes = params["sample_set_sizes"]
     for k in range(state_dim):
         n = sample_set_sizes[k]
@@ -811,15 +793,6 @@ def D_prime_summary_func(
 def r_summary_func(
     state_dim: int, state: np.ndarray, result: np.ndarray, params: Dict[str, Any]
 ) -> None:
-    """Summary function for the r statistic. We first compute the proportion of
-    AB, A, and B haplotypes, then we compute the r statistic, storing the outputs
-    in the result vector, one entry per sample set.
-
-    :param state_dim: Number of sample sets.
-    :param state: Counts of 3 haplotype configurations for each sample set.
-    :param result: Vector of length state_dim to store the results in.
-    :param params: Parameters for the summary function.
-    """
     sample_set_sizes = params["sample_set_sizes"]
     for k in range(state_dim):
         n = sample_set_sizes[k]
@@ -842,15 +815,6 @@ def r_summary_func(
 def Dz_summary_func(
     state_dim: int, state: np.ndarray, result: np.ndarray, params: Dict[str, Any]
 ) -> None:
-    """Summary function for the Dz statistic. We first compute the proportion of
-    AB, A, and B haplotypes, then we compute the Dz statistic, storing the outputs
-    in the result vector, one entry per sample set.
-
-    :param state_dim: Number of sample sets.
-    :param state: Counts of 3 haplotype configurations for each sample set.
-    :param result: Vector of length state_dim to store the results in.
-    :param params: Parameters for the summary function.
-    """
     sample_set_sizes = params["sample_set_sizes"]
     for k in range(state_dim):
         n = sample_set_sizes[k]
@@ -869,15 +833,6 @@ def Dz_summary_func(
 def pi2_summary_func(
     state_dim: int, state: np.ndarray, result: np.ndarray, params: Dict[str, Any]
 ) -> None:
-    """Summary function for the pi2 statistic. We first compute the proportion of
-    AB, A, and B haplotypes, then we compute the pi2 statistic, storing the outputs
-    in the result vector, one entry per sample set.
-
-    :param state_dim: Number of sample sets.
-    :param state: Counts of 3 haplotype configurations for each sample set.
-    :param result: Vector of length state_dim to store the results in.
-    :param params: Parameters for the summary function.
-    """
     sample_set_sizes = params["sample_set_sizes"]
     for k in range(state_dim):
         n = sample_set_sizes[k]
@@ -1123,7 +1078,15 @@ def test_ld_empty_examples(ts):
         ts.ld_matrix()
 
 
-def test_bad_stat_name():
+def test_input_validation():
     ts = get_paper_ex_ts()
     with pytest.raises(ValueError, match="Unknown two-locus statistic"):
         ts.ld_matrix(stat="bad_stat")
+    with pytest.raises(ValueError, match="must be a list of"):
+        ts.ld_matrix(sites=["abc"])
+    with pytest.raises(ValueError, match="must be a list of"):
+        ts.ld_matrix(sites=[1, 2, 3])
+    with pytest.raises(ValueError, match="must be a length 1 or 2 list"):
+        ts.ld_matrix(sites=[[1, 2], [2, 3], [3, 4]])
+    with pytest.raises(ValueError, match="must be a length 1 or 2 list"):
+        ts.ld_matrix(sites=[])
