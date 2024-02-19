@@ -9356,7 +9356,7 @@ class TreeSequence:
             two_locus_stat = stats[stat]
         except KeyError:
             raise ValueError(
-                f"two-locus statistic not supported, we support: {stats.keys()}"
+                f"Unknown two-locus statistic '{stat}', we support: {list(stats.keys())}"
             )
 
         return self.__two_locus_sample_set_stat(

@@ -1125,3 +1125,9 @@ def test_ld_matrix(ts, stat):
 def test_ld_empty_examples(ts):
     with pytest.raises(ValueError, match="at least one element"):
         ts.ld_matrix()
+
+
+def test_bad_stat_name():
+    ts = get_paper_ex_ts()
+    with pytest.raises(ValueError, match="Unknown two-locus statistic"):
+        ts.ld_matrix(stat="bad_stat")
