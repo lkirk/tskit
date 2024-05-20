@@ -605,42 +605,6 @@ def two_site_count_stat(
     return result
 
 
-def next_pos(pos, index):
-    """
-    Advance tree to next tree position. If the tree is still uninitialized,
-    seeks may be performed to an arbitrary position. Because we have to mask
-    removed edges in the index once we seek, the index cannot be reused in
-    any context that uses information before the first seek.
-
-    :param pos: TreePosition object storing the current position in the edge diffs
-    :param index: Index to advance the current position to
-    """
-    # if initialized or seeking to the first position from the beginning, jump
-    # forward one tree
-    if pos.index != tskit.NULL or index == 0:
-        assert pos.next(), "out of bounds"
-        return
-    # if uninitialized (no current position), and seeking to an arbitrary point
-    # in the tree, use seek_forward
-    pos.seek_forward(index)
-    exclude_edges = pos.out_range.order[0 : pos.out_range.stop].copy()
-    exclude_edges.sort()
-    in_range_order = pos.in_range.order[pos.in_range.start : pos.in_range.stop].copy()
-    # because we only want branches valid in the current tree onwards,
-    # we mask out edges that have been removed up to this point. These branches
-    # will not be re-added, but it means this index will not be reusable up until
-    # the point we've seeked to.
-    e = 0
-    for i in np.argsort(in_range_order):
-        if in_range_order[i] == exclude_edges[e]:
-            in_range_order[i] = tskit.NULL
-            e += 1
-        if e == len(exclude_edges):
-            break
-    # modify the positional index in-place.
-    pos.in_range.order = in_range_order
-
-
 def get_index_repeats(indices):
     """In a list of indices, find the repeat values. The first value
     is offset by the first index and ranges to the last index.
@@ -720,14 +684,14 @@ def two_branch_count_stat(
         # zero out stat and r_state at the beginning of each row
         stat = np.zeros_like(stat)
         r_state = TreeState(ts, sample_sets, num_sample_sets, sample_index_map)
-        next_pos(l_state.pos, r + row_trees[0])
+        l_state.advance(r + row_trees[0])
         # use null TreeState to advance l_state, conveniently we just zerod r_state
         _, l_state = compute_branch_stat(
             ts, func, stat, params, num_sample_sets, r_state, l_state
         )
         col = 0
         for c in range(col_trees[-1] + 1 - col_trees[0]):
-            next_pos(r_state.pos, c + col_trees[0])
+            r_state.advance(c + col_trees[0])
             stat, r_state = compute_branch_stat(
                 ts, func, stat, params, num_sample_sets, l_state, r_state
             )
@@ -1503,6 +1467,8 @@ class TreeState:
     # 0    1
     # 1    0
     # 1    1
+    edges_out: List[int]  # list of edges removed during iteration
+    edges_in: List[int]  # list of edges added during iteration
 
     def __init__(self, ts, sample_sets, num_sample_sets, sample_index_map):
         self.pos = tsutil.TreePosition(ts)
@@ -1515,6 +1481,60 @@ class TreeState:
             for k in range(num_sample_sets):
                 if sample_sets.contains(k, sample_index_map[n]):
                     self.node_samples.add((num_sample_sets * n) + k, n)
+        # these are empty for the uninitialized state (index = -1)
+        self.edges_in = []
+        self.edges_out = []
+
+    def advance(self, index):
+        """
+        Advance tree to next tree position. If the tree is still uninitialized,
+        seeks may be performed to an arbitrary position. Since we need to
+        compute stats over contiguous ranges of trees, once we've seeked to a
+        position, we step forward by one tree. Finally, we set `edges_in` and
+        `edges_out` to be consumed by the downstream stats function.
+
+        :param index: Tree index to advance to
+        """
+
+        # if initialized or seeking to the first position from the beginning, jump
+        # forward one tree
+        if self.pos.index != tskit.NULL or index == 0:
+            if index != 0:
+                assert index == self.pos.index + 1, "only one step allowed"
+            assert self.pos.next(), "out of bounds"
+            edges_out = [
+                self.pos.out_range.order[j]
+                for j in range(self.pos.out_range.start, self.pos.out_range.stop)
+            ]
+            edges_in = [
+                self.pos.in_range.order[j]
+                for j in range(self.pos.in_range.start, self.pos.in_range.stop)
+            ]
+            self.edges_out = edges_out
+            self.edges_in = edges_in
+            return
+
+        # if uninitialized (no current position), and seeking to an arbitrary point
+        # in the tree, use seek_forward
+        edges_out, edges_in = [], []
+        old_right = self.pos.interval.right
+        self.pos.seek_forward(index)
+        left = self.pos.interval.left
+        for j in range(self.pos.out_range.start, self.pos.out_range.stop):
+            e = self.pos.out_range.order[j]
+            e_left = self.pos.ts.edges_left[e]
+            # skip over edges that are not in the current tree
+            if e_left < old_right:
+                edges_out.append(e)
+        for j in range(self.pos.in_range.start, self.pos.in_range.stop):
+            e = self.pos.in_range.order[j]
+            # skip over edges that are not in the current tree
+            if self.pos.ts.edges_left[e] <= left < self.pos.ts.edges_right[e]:
+                edges_in.append(e)
+
+        self.edges_out = edges_out
+        self.edges_in = edges_in
+        return
 
 
 def compute_branch_stat_update(
@@ -1632,14 +1652,11 @@ def compute_branch_stat(ts, stat_func, stat, params, state_dim, l_state, r_state
               branch updates and the righthand tree state.
     """
     time = ts.tables.nodes.time
-    r_pos = r_state.pos
 
     child_samples = BitSet(ts.num_samples, state_dim)
-    for e in r_pos.out_range.order[r_pos.out_range.start : r_pos.out_range.stop]:
-        if e == tskit.NULL:
-            continue
-        p = r_pos.ts.edges_parent[e]
-        c = r_pos.ts.edges_child[e]
+    for e in r_state.edges_out:
+        p = ts.edges_parent[e]
+        c = ts.edges_child[e]
         child_samples.data[:] = 0
         for k in range(state_dim):
             c_row = (state_dim * c) + k
@@ -1682,11 +1699,9 @@ def compute_branch_stat(ts, stat_func, stat, params, state_dim, l_state, r_state
         r_state.branch_len[c] = 0
         r_state.parent[c] = tskit.NULL
 
-    for e in r_pos.in_range.order[r_pos.in_range.start : r_pos.in_range.stop]:
-        if e == tskit.NULL:
-            continue
-        p = r_pos.ts.edges_parent[e]
-        c = r_pos.ts.edges_child[e]
+    for e in r_state.edges_in:
+        p = ts.edges_parent[e]
+        c = ts.edges_child[e]
         child_samples.data[:] = 0
         for k in range(state_dim):
             c_row = (state_dim * c) + k
