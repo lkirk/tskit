@@ -2861,7 +2861,6 @@ advance_collect_edges(iter_state *s, tsk_id_t index)
     tsk_id_t j, e;
     tsk_size_t i;
     double left;
-    tsk_id_t *restrict edge = s->tree->edge;
     tsk_tree_t *tree = s->tree;
     const double *restrict edges_left = s->tree->tree_sequence->tables->edges.left;
     const double *restrict edges_right = s->tree->tree_sequence->tables->edges.right;
