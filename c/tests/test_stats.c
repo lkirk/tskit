@@ -23,7 +23,6 @@
  */
 
 #include "testlib.h"
-#include "tskit/trees.h"
 #include <tskit/stats.h>
 
 #include <unistd.h>
