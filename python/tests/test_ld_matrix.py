@@ -1090,8 +1090,8 @@ SUMMARY_FUNCS = {
     "D_prime": D_prime_summary_func,
     "pi2": pi2_summary_func,
     "Dz": Dz_summary_func,
-    "d2_unbiased": d2_unbiased,
-    "dz_unbiased": dz_unbiased,
+    "D2_unbiased": d2_unbiased,
+    "Dz_unbiased": dz_unbiased,
     "pi2_unbiased": pi2_unbiased,
 }
 
@@ -1103,9 +1103,9 @@ NORM_METHOD = {
     pi2_summary_func: norm_total_weighted,
     r_summary_func: norm_total_weighted,
     r2_summary_func: norm_hap_weighted,
-    d2_unbiased: None,
-    dz_unbiased: None,
-    pi2_unbiased: None,
+    d2_unbiased: norm_total_weighted,
+    dz_unbiased: norm_total_weighted,
+    pi2_unbiased: norm_total_weighted,
 }
 
 POLARIZATION = {
@@ -1276,7 +1276,11 @@ def test_subset_positions(partition):
     bp = ts.breakpoints(as_array=True)
     mid = (bp[1:] + bp[:-1]) / 2
     np.testing.assert_allclose(
-        ld_matrix(ts, mode="branch", stat="d2_unbiased", positions=[mid[a], mid[b]]),
+        ld_matrix(ts, mode="branch", stat="D2_unbiased", positions=[mid[a], mid[b]]),
+        PAPER_EX_BRANCH_TRUTH_MATRIX[a[0] : a[-1] + 1, b[0] : b[-1] + 1],
+    )
+    np.testing.assert_allclose(
+        ts.ld_matrix(mode="branch", stat="D2_unbiased", positions=[mid[a], mid[b]]),
         PAPER_EX_BRANCH_TRUTH_MATRIX[a[0] : a[-1] + 1, b[0] : b[-1] + 1],
     )
 
@@ -1321,7 +1325,13 @@ def test_subset_positions_one_list(tree_index):
     bp = ts.breakpoints(as_array=True)
     mid = (bp[1:] + bp[:-1]) / 2
     np.testing.assert_allclose(
-        ld_matrix(ts, mode="branch", stat="d2_unbiased", positions=[mid[tree_index]]),
+        ld_matrix(ts, mode="branch", stat="D2_unbiased", positions=[mid[tree_index]]),
+        PAPER_EX_BRANCH_TRUTH_MATRIX[
+            tree_index[0] : tree_index[-1] + 1, tree_index[0] : tree_index[-1] + 1
+        ],
+    )
+    np.testing.assert_allclose(
+        ts.ld_matrix(mode="branch", stat="D2_unbiased", positions=[mid[tree_index]]),
         PAPER_EX_BRANCH_TRUTH_MATRIX[
             tree_index[0] : tree_index[-1] + 1, tree_index[0] : tree_index[-1] + 1
         ],
@@ -1363,7 +1373,11 @@ def test_repeated_position_elements(tree_index):
 
     np.testing.assert_allclose(
         truth,
-        ld_matrix(ts, mode="branch", stat="d2_unbiased", positions=[l_pos, r_pos]),
+        ld_matrix(ts, mode="branch", stat="D2_unbiased", positions=[l_pos, r_pos]),
+    )
+    np.testing.assert_allclose(
+        truth,
+        ts.ld_matrix(mode="branch", stat="D2_unbiased", positions=[l_pos, r_pos]),
     )
 
 
@@ -1394,7 +1408,7 @@ def test_compare_to_ld_calculator():
 
 @pytest.mark.parametrize(
     "stat",
-    sorted(SUMMARY_FUNCS.keys() - {"d2_unbiased", "dz_unbiased", "pi2_unbiased"}),
+    sorted(SUMMARY_FUNCS.keys()),
 )
 def test_multiallelic_with_back_mutation(stat):
     ts = msprime.sim_ancestry(
@@ -1417,7 +1431,7 @@ def test_multiallelic_with_back_mutation(stat):
 # TODO: port unbiased summary functions
 @pytest.mark.parametrize(
     "stat",
-    sorted(SUMMARY_FUNCS.keys() - {"d2_unbiased", "dz_unbiased", "pi2_unbiased"}),
+    sorted(SUMMARY_FUNCS.keys()),
 )
 def test_ld_matrix(ts, stat):
     np.testing.assert_array_almost_equal(
@@ -1905,13 +1919,16 @@ def naive_matrix(ts, stat_func, sample_set=None):
 @pytest.mark.parametrize(
     "stat,stat_func",
     zip(
-        ["d2_unbiased", "dz_unbiased", "pi2_unbiased"],
+        ["D2_unbiased", "Dz_unbiased", "pi2_unbiased"],
         [compute_D2, compute_Dz, compute_pi2],
     ),
 )
 def test_branch_ld_matrix(ts, stat, stat_func):
     np.testing.assert_array_almost_equal(
         ld_matrix(ts, stat=stat, mode="branch"), naive_matrix(ts, stat_func)
+    )
+    np.testing.assert_array_almost_equal(
+        ts.ld_matrix(stat=stat, mode="branch"), ld_matrix(ts, stat=stat, mode="branch")
     )
 
 
@@ -1944,7 +1961,7 @@ def get_test_branch_sample_set_test_cases():
 @pytest.mark.parametrize(
     "stat,stat_func",
     zip(
-        ["d2_unbiased", "dz_unbiased", "pi2_unbiased"],
+        ["D2_unbiased", "Dz_unbiased", "pi2_unbiased"],
         [compute_D2, compute_Dz, compute_pi2],
     ),
 )
@@ -1952,4 +1969,10 @@ def test_branch_ld_matrix_sample_sets(ts, sample_set, stat, stat_func):
     np.testing.assert_array_almost_equal(
         ld_matrix(ts, stat=stat, mode="branch", sample_sets=sample_set),
         naive_matrix(ts, stat_func, sample_set[0]),
+    )
+    np.testing.assert_array_almost_equal(
+        np.expand_dims(
+            ld_matrix(ts, stat=stat, mode="branch", sample_sets=sample_set), axis=0
+        ),
+        ts.ld_matrix(stat=stat, mode="branch", sample_sets=sample_set),
     )

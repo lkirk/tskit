@@ -23,6 +23,7 @@
  */
 
 #include "testlib.h"
+#include "tskit/trees.h"
 #include <tskit/stats.h>
 
 #include <unistd.h>
@@ -2175,7 +2176,7 @@ test_paper_ex_two_site(void)
     result_size = num_sites * num_sites;
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
 
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size * num_sample_sets, result, truth_one_set);
@@ -2189,7 +2190,7 @@ test_paper_ex_two_site(void)
 
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
 
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size * num_sample_sets, result, truth_two_sets);
@@ -2203,7 +2204,7 @@ test_paper_ex_two_site(void)
 
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
 
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal_nan(
@@ -2212,6 +2213,53 @@ test_paper_ex_two_site(void)
     tsk_treeseq_free(&ts);
     tsk_safe_free(row_sites);
     tsk_safe_free(col_sites);
+}
+
+static void
+test_paper_ex_two_branch(void)
+{
+    int ret;
+    tsk_treeseq_t ts;
+    double result[27];
+    tsk_size_t i, result_size, num_sample_sets;
+    tsk_flags_t options = 0;
+    /* double truth_one_set[9] = { 1, 0.1111111111111111, 0.1111111111111111, */
+    /*     0.1111111111111111, 1, 1, 0.1111111111111111, 1, 1 }; */
+
+    tsk_treeseq_from_text(&ts, 10, paper_ex_nodes, paper_ex_edges, NULL, paper_ex_sites,
+        paper_ex_mutations, paper_ex_individuals, NULL, 0);
+
+    tsk_size_t sample_set_sizes[1];
+    tsk_id_t sample_sets[ts.num_samples];
+    tsk_size_t num_trees = ts.num_trees;
+    double *row_positions = tsk_malloc(num_trees * sizeof(*row_positions));
+    double *col_positions = tsk_malloc(num_trees * sizeof(*col_positions));
+
+    // First sample set contains all of the samples
+    sample_set_sizes[0] = ts.num_samples;
+    num_sample_sets = 1;
+    for (i = 0; i < ts.num_samples; i++) {
+        sample_sets[i] = (tsk_id_t) i;
+    }
+    for (i = 0; i < num_trees; i++) {
+        row_positions[i] = ts.breakpoints[i];
+        col_positions[i] = ts.breakpoints[i];
+    }
+
+    options |= TSK_STAT_BRANCH;
+
+    result_size = num_trees * num_trees;
+    tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
+    ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_trees,
+        NULL, row_positions, num_trees, NULL, col_positions, options, result);
+
+    CU_ASSERT_EQUAL_FATAL(ret, 0);
+    /* assert_arrays_almost_equal(result_size * num_sample_sets, result, truth_one_set);
+     */
+
+    tsk_treeseq_free(&ts);
+    tsk_safe_free(row_positions);
+    tsk_safe_free(col_positions);
 }
 
 static void
@@ -2295,43 +2343,43 @@ test_two_site_correlated_multiallelic(void)
 
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_D(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size, result, truth_D);
 
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_D2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size, result, truth_D2);
 
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size, result, truth_r2);
 
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_D_prime(&ts, num_sample_sets, sample_set_sizes, sample_sets,
-        num_sites, row_sites, num_sites, col_sites, 0, result);
+        num_sites, row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size, result, truth_D_prime);
 
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_r(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size, result, truth_r);
 
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_Dz(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size, result, truth_Dz);
 
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_pi2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size, result, truth_pi2);
 
@@ -2426,43 +2474,43 @@ test_two_site_uncorrelated_multiallelic(void)
 
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_D(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size, result, truth_D);
 
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_D2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size, result, truth_D2);
 
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size, result, truth_r2);
 
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_D_prime(&ts, num_sample_sets, sample_set_sizes, sample_sets,
-        num_sites, row_sites, num_sites, col_sites, 0, result);
+        num_sites, row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size, result, truth_D_prime);
 
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_r(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size, result, truth_r);
 
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_Dz(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size, result, truth_Dz);
 
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_pi2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size, result, truth_pi2);
 
@@ -2531,7 +2579,7 @@ test_two_site_backmutation(void)
 
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size, result, truth_r2);
 
@@ -2569,7 +2617,7 @@ test_paper_ex_two_site_subset(void)
     result_size = 2 * 2;
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, 2,
-        row_sites, 2, col_sites, 0, result);
+        row_sites, NULL, 2, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size * num_sample_sets, result, result_truth_1);
 
@@ -2577,7 +2625,7 @@ test_paper_ex_two_site_subset(void)
     tsk_memset(result, 0, sizeof(*result) * result_size * num_sample_sets);
     col_sites[0] = 2;
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, 1,
-        row_sites, 1, col_sites, 0, result);
+        row_sites, NULL, 1, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size * num_sample_sets, result, result_truth_2);
 
@@ -2588,7 +2636,7 @@ test_paper_ex_two_site_subset(void)
     col_sites[0] = 0;
     col_sites[1] = 1;
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, 2,
-        row_sites, 2, col_sites, 0, result);
+        row_sites, NULL, 2, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
     assert_arrays_almost_equal(result_size * num_sample_sets, result, result_truth_3);
 
@@ -2630,50 +2678,52 @@ test_two_locus_stat_input_errors(void)
 
     sample_sets[1] = 0;
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_DUPLICATE_SAMPLE);
     sample_sets[1] = 1;
 
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, TSK_STAT_SITE | TSK_STAT_BRANCH, result);
+        row_sites, NULL, num_sites, col_sites, NULL, TSK_STAT_SITE | TSK_STAT_BRANCH,
+        result);
     CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_MULTIPLE_STAT_MODES);
 
-    ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, TSK_STAT_BRANCH, result);
-    CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_UNSUPPORTED_STAT_MODE);
+    /* ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets,
+     * num_sites, */
+    /*     row_sites, NULL, num_sites, col_sites, NULL, TSK_STAT_BRANCH, result); */
+    /* CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_UNSUPPORTED_STAT_MODE); */
 
     ret = tsk_treeseq_r2(&ts, 0, sample_set_sizes, sample_sets, num_sites, row_sites,
-        num_sites, col_sites, 0, result);
+        NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_INSUFFICIENT_SAMPLE_SETS);
 
     sample_set_sizes[0] = 0;
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_EMPTY_SAMPLE_SET);
     sample_set_sizes[0] = ts.num_samples;
 
     sample_sets[1] = 10;
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_NODE_OUT_OF_BOUNDS);
     sample_sets[1] = 1;
 
     row_sites[0] = 1000;
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_SITE_OUT_OF_BOUNDS);
     row_sites[0] = 0;
 
     col_sites[num_sites - 1] = (tsk_id_t) num_sites;
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_SITE_OUT_OF_BOUNDS);
     col_sites[num_sites - 1] = (tsk_id_t) num_sites - 1;
 
     row_sites[0] = 1;
     row_sites[1] = 0;
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_UNSORTED_SITES);
     row_sites[0] = 0;
     row_sites[1] = 1;
@@ -2681,14 +2731,14 @@ test_two_locus_stat_input_errors(void)
     row_sites[0] = 1;
     row_sites[1] = 1;
     ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, num_sites,
-        row_sites, num_sites, col_sites, 0, result);
+        row_sites, NULL, num_sites, col_sites, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, TSK_ERR_UNSORTED_SITES);
     row_sites[0] = 0;
     row_sites[1] = 1;
 
     // Not an error condition, but we want to record this behavior
-    ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, 0, NULL, 0,
-        NULL, 0, result);
+    ret = tsk_treeseq_r2(&ts, num_sample_sets, sample_set_sizes, sample_sets, 0, NULL,
+        NULL, 0, NULL, NULL, 0, result);
     CU_ASSERT_EQUAL_FATAL(ret, 0);
 
     tsk_treeseq_free(&ts);
@@ -2982,6 +3032,7 @@ main(int argc, char **argv)
         { "test_ld_silent_mutations", test_ld_silent_mutations },
 
         { "test_paper_ex_two_site", test_paper_ex_two_site },
+        { "test_paper_ex_two_branch", test_paper_ex_two_branch },
         { "test_two_site_correlated_multiallelic",
             test_two_site_correlated_multiallelic },
         { "test_two_site_uncorrelated_multiallelic",
