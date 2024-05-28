@@ -2722,37 +2722,6 @@ out:
     return ret;
 }
 
-/* static int */
-/* compute_two_tree_branch_state_update(tsk_id_t c, double *b_branch_len, int sign, */
-/*     tsk_size_t state_dim, tsk_size_t num_samples) */
-/* { */
-/*     int ret = 0; */
-/*     double b_len = b_branch_len[c] * sign; */
-/*     if (b_len == 0) { */
-/*         return ret; */
-/*     } */
-/*     tsk_bit_array_t AB_samples; */
-/*     tsk_bit_array_t node_samples_tmp; */
-/*     tsk_size_t *weights = tsk_malloc(3 * state_dim * sizeof(*weights)); */
-/*     double *norm = tsk_malloc(state_dim * sizeof(*norm)); */
-/*     double *result_tmp = tsk_malloc(state_dim * sizeof(*result_tmp)); */
-
-/*     tsk_memset(&AB_samples, 0, sizeof(AB_samples)); */
-
-/*     if (weights == NULL || norm == NULL || result_tmp == NULL) { */
-/*         ret = TSK_ERR_NO_MEMORY; */
-/*         goto out; */
-/*     } */
-
-/*     ret = tsk_bit_array_init(&AB_samples, num_samples, 1); */
-/*     if (ret != 0) { */
-/*         goto out; */
-/*     } */
-
-/* out: */
-/*     return ret; */
-/* } */
-
 typedef struct {
     tsk_tree_t *tree;
     tsk_bit_array_t *node_samples;
@@ -2946,8 +2915,6 @@ compute_two_tree_branch_state_update(const tsk_treeseq_t *ts, tsk_id_t c,
     double *weights = tsk_calloc(3 * state_dim, sizeof(*weights));
     double *result_tmp = tsk_calloc(3 * state_dim, sizeof(*result_tmp));
 
-    /* tsk_memset(&A_samples, 0, sizeof(A_samples)); */
-    /* tsk_memset(&B_samples, 0, sizeof(B_samples)); */
     tsk_memset(&AB_samples, 0, sizeof(AB_samples));
     tsk_memset(&node_samples_tmp, 0, sizeof(node_samples_tmp));
 
@@ -2955,14 +2922,6 @@ compute_two_tree_branch_state_update(const tsk_treeseq_t *ts, tsk_id_t c,
         ret = TSK_ERR_NO_MEMORY;
         goto out;
     }
-    /* ret = tsk_bit_array_init(&A_samples, num_samples, 1); */
-    /* if (ret != 0) { */
-    /*     goto out; */
-    /* } */
-    /* ret = tsk_bit_array_init(&B_samples, num_samples, 1); */
-    /* if (ret != 0) { */
-    /*     goto out; */
-    /* } */
     ret = tsk_bit_array_init(&AB_samples, num_samples, 1);
     if (ret != 0) {
         goto out;
@@ -2991,9 +2950,6 @@ compute_two_tree_branch_state_update(const tsk_treeseq_t *ts, tsk_id_t c,
             weights_row[2]
                 = (double) tsk_bit_array_count(&B_samples) - weights_row[0]; // w_aB
         }
-        /* printf("+ c=%d weights={%d, %d, %d} %d\n", c, (int) weights[0], (int)
-         * weights[1], */
-        /*     (int) weights[2], sign); */
         ret = f(state_dim, weights, state_dim, result_tmp, f_params);
         if (ret != 0) {
             goto out;
@@ -3020,8 +2976,6 @@ compute_two_tree_branch_state_update(const tsk_treeseq_t *ts, tsk_id_t c,
                 weights_row[2] = (double) tsk_bit_array_count(&node_samples_tmp)
                                  - weights_row[0]; // w_aB
             }
-            /* printf("- c=%d weights={%d, %d, %d} %d\n", c, (int) weights[0], */
-            /*     (int) weights[1], (int) weights[2], sign); */
             ret = f(state_dim, weights, state_dim, result_tmp, f_params);
             if (ret != 0) {
                 goto out;
@@ -3034,8 +2988,6 @@ compute_two_tree_branch_state_update(const tsk_treeseq_t *ts, tsk_id_t c,
 out:
     tsk_safe_free(weights);
     tsk_safe_free(result_tmp);
-    /* tsk_bit_array_free(&A_samples); */
-    /* tsk_bit_array_free(&B_samples); */
     tsk_bit_array_free(&AB_samples);
     tsk_bit_array_free(&node_samples_tmp);
     return ret;
@@ -3055,7 +3007,6 @@ compute_two_tree_branch_stat(const tsk_treeseq_t *ts, const iter_state *l_state,
     const tsk_id_t *restrict edges_parent = ts->tables->edges.parent;
     tsk_bit_array_t *r_samples = r_state->node_samples;
 
-    /* printf("l_state %d r_state %d\n", l_state->tree->index, r_state->tree->index); */
     tsk_memset(&child_samples, 0, sizeof(child_samples));
     ret = tsk_bit_array_init(&child_samples, ts->num_samples, state_dim);
     if (ret != 0) {
@@ -3189,7 +3140,6 @@ tsk_treeseq_two_branch_count_stat(const tsk_treeseq_t *self, tsk_size_t state_di
     if (ret != 0) {
         goto out;
     }
-    /* double wef = 0; */
     iter_state_clear(&l_state, state_dim, num_nodes, &node_samples);
     row = 0;
     for (r = 0; (tsk_id_t) r < (row_indices[n_rows - 1] - row_indices[0] + 1); r++) {
@@ -3221,29 +3171,9 @@ tsk_treeseq_two_branch_count_stat(const tsk_treeseq_t *self, tsk_size_t state_di
                     result_row = GET_2D_ROW(result, state_dim * n_cols, row + i);
                     for (k = 0; k < state_dim; k++) {
                         result_row[col + (j * state_dim) + k] = stat[k];
-                        /* result_row[col + (j * state_dim) + k] = wef; */
-                        // result_row[k] = stat[k];
-                        /* printf("row=%lu col=%lu row+i=%lu col+j=%lu i=%lu j=%lu k=%lu
-                         * " */
-                        /*        "l_idx=%d r_idx=%d " */
-                        /*        "wef=%f\n", */
-                        /*     row, col, row + i, col + j, i, j, k, l_state.tree->index,
-                         */
-                        /*     r_state.tree->index, wef); */
-                        /* ret = compute_two_tree_branch_stat(self, &l_state, &r_state,
-                         * f, */
-                        /*     f_params, state_dim, &(result_row[col + (j *
-                         * state_dim)])); */
-                        /* if (ret != 0) { */
-                        /*     goto out; */
-                        /* } */
                     }
-                    /* wef += 0.1; */
                 }
             }
-            /* wef = floor(wef); */
-            /* printf("WEF %f\n", wef); */
-            /* wef += 1; */
             col += (col_repeats[c] * state_dim);
         }
         row += row_repeats[r];
