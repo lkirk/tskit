@@ -2860,10 +2860,10 @@ advance_collect_edges(iter_state *s, tsk_id_t index)
     int ret = 0;
     tsk_id_t j, e;
     tsk_size_t i;
-    double left;
+    double left, right;
     tsk_tree_t *tree = s->tree;
-    const double *restrict edges_left = s->tree->tree_sequence->tables->edges.left;
-    const double *restrict edges_right = s->tree->tree_sequence->tables->edges.right;
+    const double *restrict edge_left = s->tree->tree_sequence->tables->edges.left;
+    const double *restrict edge_right = s->tree->tree_sequence->tables->edges.right;
 
     tsk_bug_assert(index != -1);
     if (tree->index != TSK_NULL || index == 0) {
@@ -2891,19 +2891,34 @@ advance_collect_edges(iter_state *s, tsk_id_t index)
             = (tsk_size_t)(tree->tree_pos.out.stop - tree->tree_pos.out.start);
         s->n_edges_in = (tsk_size_t)(tree->tree_pos.in.stop - tree->tree_pos.in.start);
     } else {
+        tsk_bug_assert(tree->index == -1);
         ret = tsk_tree_seek_index(tree, index, 0);
         if (ret < 0) {
             goto out;
         }
-        left = tree->tree_pos.interval.left;
+        tsk_bug_assert(tree->tree_pos.direction != 0);
         i = 0;
-        for (j = tree->tree_pos.in.start; j != tree->tree_pos.in.stop; j++) {
-            e = tree->tree_pos.in.order[j];
-            if (edges_left[e] <= left && left < edges_right[e]) {
-                s->edges_in[i] = tree->tree_pos.in.order[j];
-                i++;
+        if (tree->tree_pos.direction == TSK_DIR_FORWARD) {
+            left = tree->tree_pos.interval.left;
+            for (j = tree->tree_pos.in.start; j != tree->tree_pos.in.stop; j++) {
+                e = tree->tree_pos.in.order[j];
+                if (edge_left[e] <= left && left < edge_right[e]) {
+                    s->edges_in[i] = tree->tree_pos.in.order[j];
+                    i++;
+                }
+            }
+        } else {
+            right = tree->tree_pos.interval.right;
+            for (j = tree->tree_pos.in.start; j != tree->tree_pos.in.stop; j--) {
+                e = tree->tree_pos.in.order[j];
+                if (edge_right[e] >= right && right > edge_left[e]) {
+                    s->edges_in[i] = tree->tree_pos.in.order[j];
+                    i++;
+                }
             }
         }
+        s->n_edges_out = 0;
+        s->n_edges_in = i;
     }
     ret = 0;
 out:
