@@ -10015,36 +10015,52 @@ out:
     return ret;
 }
 
-static tsk_id_t *
-parse_sites(TreeSequence *self, PyObject *sites, npy_intp *dim)
+static PyArrayObject *
+parse_sites(TreeSequence *self, PyObject *sites, npy_intp *out_dim)
 {
-    PyArrayObject *out;
+    PyArrayObject *array;
     tsk_size_t num_sites = tsk_treeseq_get_num_sites(self->tree_sequence);
 
     if (sites == Py_None) {
-        out = (PyArrayObject *) PyArray_Arange(0, num_sites, 1, NPY_INT32);
-        *dim = PyArray_DIM(out, 0);
-        return PyArray_DATA(out);
+        array = (PyArrayObject *) PyArray_Arange(0, num_sites, 1, NPY_INT32);
+        if (array == NULL) {
+            goto out;
+        }
+        *out_dim = PyArray_DIM(array, 0);
+    } else {
+        array = (PyArrayObject *) PyArray_FROMANY(
+            sites, NPY_INT32, 1, 1, NPY_ARRAY_IN_ARRAY);
+        if (array == NULL) {
+            goto out;
+        }
+        *out_dim = PyArray_DIM(array, 0);
     }
-    out = (PyArrayObject *) PyArray_FROMANY(sites, NPY_INT32, 1, 1, NPY_ARRAY_IN_ARRAY);
-    *dim = PyArray_DIM(out, 0);
-    return PyArray_DATA(out);
+
+out:
+    return array;
 }
 
-static double *
-parse_positions(TreeSequence *self, PyObject *sites, npy_intp *dim)
+static PyArrayObject *
+parse_positions(TreeSequence *self, PyObject *positions, npy_intp *out_dim)
 {
-    PyArrayObject *out;
+    PyArrayObject *array;
 
-    if (sites == Py_None) {
-        out = (PyArrayObject *) TreeSequence_get_breakpoints(self);
-        *dim = PyArray_DIM(out, 0) - 1; // NB the last element must be truncated
-        return PyArray_DATA(out);
+    if (positions == Py_None) {
+        array = (PyArrayObject *) TreeSequence_get_breakpoints(self);
+        if (array == NULL) {
+            goto out;
+        }
+        *out_dim = PyArray_DIM(array, 0) - 1; // NB the last element must be truncated
+    } else {
+        array = (PyArrayObject *) PyArray_FROMANY(
+            positions, NPY_FLOAT64, 1, 1, NPY_ARRAY_IN_ARRAY);
+        if (array == NULL) {
+            goto out;
+        }
+        *out_dim = PyArray_DIM(array, 0);
     }
-    out = (PyArrayObject *) PyArray_FROMANY(
-        sites, NPY_FLOAT64, 1, 1, NPY_ARRAY_IN_ARRAY);
-    *dim = PyArray_DIM(out, 0);
-    return PyArray_DATA(out);
+out:
+    return array;
 }
 
 static PyObject *
@@ -10055,13 +10071,14 @@ TreeSequence_ld_matrix(TreeSequence *self, PyObject *args, PyObject *kwds,
     static char *kwlist[] = { "sample_set_sizes", "sample_sets", "row_sites",
         "col_sites", "row_positions", "column_positions", "mode", NULL };
 
-    PyObject *row_sites = NULL, *col_sites = NULL;
-    PyObject *row_positions = NULL, *col_positions = NULL;
-    PyObject *sample_set_sizes = NULL, *sample_sets = NULL;
+    PyObject *row_sites = NULL, *col_sites = NULL, *row_positions = NULL,
+             *col_positions = NULL, *sample_set_sizes = NULL, *sample_sets = NULL;
+    PyArrayObject *row_sites_array = NULL, *col_sites_array = NULL,
+                  *row_positions_array = NULL, *col_positions_array = NULL,
+                  *sample_sets_array = NULL, *sample_set_sizes_array = NULL,
+                  *result_matrix = NULL;
     tsk_id_t *row_sites_parsed = NULL, *col_sites_parsed = NULL;
     double *row_positions_parsed = NULL, *col_positions_parsed = NULL;
-    PyArrayObject *sample_set_sizes_array = NULL, *sample_sets_array = NULL;
-    PyArrayObject *result_matrix = NULL;
     npy_intp result_dim[3];
     char *mode = NULL;
     tsk_size_t num_sample_sets;
@@ -10090,21 +10107,25 @@ TreeSequence_ld_matrix(TreeSequence *self, PyObject *args, PyObject *kwds,
             PyErr_SetString(PyExc_ValueError, "Cannot specify positions in site mode");
             goto out;
         }
-        row_sites_parsed = parse_sites(self, row_sites, &(result_dim[0]));
-        col_sites_parsed = parse_sites(self, col_sites, &(result_dim[1]));
-        if (row_sites_parsed == NULL || col_sites_parsed == NULL) {
+        row_sites_array = parse_sites(self, row_sites, &(result_dim[0]));
+        col_sites_array = parse_sites(self, col_sites, &(result_dim[1]));
+        if (row_sites_array == NULL || col_sites_array == NULL) {
             goto out;
         }
+        row_sites_parsed = PyArray_DATA(row_sites_array);
+        col_sites_parsed = PyArray_DATA(col_sites_array);
     } else if (options & TSK_STAT_BRANCH) {
         if (row_sites != Py_None || col_sites != Py_None) {
             PyErr_SetString(PyExc_ValueError, "Cannot specify sites in branch mode");
             goto out;
         }
-        row_positions_parsed = parse_positions(self, row_positions, &(result_dim[0]));
-        col_positions_parsed = parse_positions(self, col_positions, &(result_dim[1]));
-        if (col_positions_parsed == NULL || row_positions_parsed == NULL) {
+        row_positions_array = parse_positions(self, row_positions, &(result_dim[0]));
+        col_positions_array = parse_positions(self, col_positions, &(result_dim[1]));
+        if (col_positions_array == NULL || row_positions_array == NULL) {
             goto out;
         }
+        row_positions_parsed = PyArray_DATA(row_positions_array);
+        col_positions_parsed = PyArray_DATA(col_positions_array);
     }
 
     result_dim[2] = num_sample_sets;
@@ -10131,12 +10152,12 @@ TreeSequence_ld_matrix(TreeSequence *self, PyObject *args, PyObject *kwds,
     ret = (PyObject *) result_matrix;
     result_matrix = NULL;
 out:
-    Py_XDECREF(row_sites_parsed);
-    Py_XDECREF(col_sites_parsed);
-    Py_XDECREF(row_positions_parsed);
-    Py_XDECREF(col_positions_parsed);
-    Py_XDECREF(sample_set_sizes_array);
+    Py_XDECREF(row_sites_array);
+    Py_XDECREF(col_sites_array);
+    Py_XDECREF(row_positions_array);
+    Py_XDECREF(col_positions_array);
     Py_XDECREF(sample_sets_array);
+    Py_XDECREF(sample_set_sizes_array);
     Py_XDECREF(result_matrix);
     return ret;
 }
@@ -10199,6 +10220,132 @@ static PyObject *
 TreeSequence_Dz_unbiased_matrix(TreeSequence *self, PyObject *args, PyObject *kwds)
 {
     return TreeSequence_ld_matrix(self, args, kwds, tsk_treeseq_Dz_unbiased);
+}
+
+static PyObject *
+TreeSequence_k_way_ld_matrix(TreeSequence *self, PyObject *args, PyObject *kwds,
+    npy_intp tuple_size, k_way_two_locus_count_stat_method *method)
+{
+    PyObject *ret = NULL;
+    static char *kwlist[] = { "sample_set_sizes", "sample_sets", "indexes", "row_sites",
+        "col_sites", "row_positions", "column_positions", "mode", NULL };
+
+    PyObject *row_sites = NULL, *col_sites = NULL, *row_positions = NULL,
+             *col_positions = NULL, *sample_set_sizes = NULL, *sample_sets = NULL,
+             *indexes = NULL;
+    PyArrayObject *row_sites_array = NULL, *col_sites_array = NULL,
+                  *row_positions_array = NULL, *col_positions_array = NULL,
+                  *sample_sets_array = NULL, *sample_set_sizes_array = NULL,
+                  *indexes_array = NULL, *result_matrix = NULL;
+    tsk_id_t *row_sites_parsed = NULL, *col_sites_parsed = NULL;
+    double *row_positions_parsed = NULL, *col_positions_parsed = NULL;
+    npy_intp *shape, result_dim[3];
+    char *mode = NULL;
+    tsk_size_t num_sample_sets, num_set_index_tuples;
+    tsk_flags_t options = 0;
+    int err;
+
+    if (TreeSequence_check_state(self) != 0) {
+        goto out;
+    }
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOO|OOOOs", kwlist, &sample_set_sizes,
+            &sample_sets, &indexes, &row_sites, &col_sites, &row_positions,
+            &col_positions, &mode)) {
+        goto out;
+    }
+    if (parse_stats_mode(mode, &options) != 0) {
+        goto out;
+    }
+    if (parse_sample_sets(sample_set_sizes, &sample_set_sizes_array, sample_sets,
+            &sample_sets_array, &num_sample_sets)
+        != 0) {
+        goto out;
+    }
+
+    if (options & TSK_STAT_SITE) {
+        if (row_positions != Py_None || col_positions != Py_None) {
+            PyErr_SetString(PyExc_ValueError, "Cannot specify positions in site mode");
+            goto out;
+        }
+        row_sites_array = parse_sites(self, row_sites, &(result_dim[0]));
+        col_sites_array = parse_sites(self, col_sites, &(result_dim[1]));
+        if (row_sites_array == NULL || col_sites_array == NULL) {
+            goto out;
+        }
+        row_sites_parsed = PyArray_DATA(row_sites_array);
+        col_sites_parsed = PyArray_DATA(col_sites_array);
+    } else if (options & TSK_STAT_BRANCH) {
+        if (row_sites != Py_None || col_sites != Py_None) {
+            PyErr_SetString(PyExc_ValueError, "Cannot specify sites in branch mode");
+            goto out;
+        }
+        row_positions_array = parse_positions(self, row_positions, &(result_dim[0]));
+        col_positions_array = parse_positions(self, col_positions, &(result_dim[1]));
+        if (col_positions_array == NULL || row_positions_array == NULL) {
+            goto out;
+        }
+        row_positions_parsed = PyArray_DATA(row_positions_array);
+        col_positions_parsed = PyArray_DATA(col_positions_array);
+    }
+
+    indexes_array = (PyArrayObject *) PyArray_FROMANY(
+        indexes, NPY_INT32, 2, 2, NPY_ARRAY_IN_ARRAY);
+    if (indexes_array == NULL) {
+        goto out;
+    }
+    shape = PyArray_DIMS(indexes_array);
+    if (shape[0] < 1 || shape[1] != tuple_size) {
+        PyErr_Format(
+            PyExc_ValueError, "indexes must be a k x %d array.", (int) tuple_size);
+        goto out;
+    }
+    num_set_index_tuples = shape[0];
+
+    result_dim[2] = num_set_index_tuples;
+    result_matrix = (PyArrayObject *) PyArray_ZEROS(3, result_dim, NPY_FLOAT64, 0);
+    if (result_matrix == NULL) {
+        PyErr_NoMemory();
+        goto out;
+    }
+
+    // clang-format off
+    Py_BEGIN_ALLOW_THREADS
+    err = method(self->tree_sequence, num_sample_sets,
+        PyArray_DATA(sample_set_sizes_array), PyArray_DATA(sample_sets_array),
+        num_set_index_tuples, PyArray_DATA(indexes_array), result_dim[0],
+        row_sites_parsed, row_positions_parsed, result_dim[1], col_sites_parsed,
+        col_positions_parsed, options, PyArray_DATA(result_matrix));
+    Py_END_ALLOW_THREADS
+        // clang-format on
+        if (err != 0)
+    {
+        handle_library_error(err);
+        goto out;
+    }
+    ret = (PyObject *) result_matrix;
+    result_matrix = NULL;
+out:
+    Py_XDECREF(row_sites_array);
+    Py_XDECREF(col_sites_array);
+    Py_XDECREF(row_positions_array);
+    Py_XDECREF(col_positions_array);
+    Py_XDECREF(sample_sets_array);
+    Py_XDECREF(sample_set_sizes_array);
+    Py_XDECREF(indexes_array);
+    Py_XDECREF(result_matrix);
+    return ret;
+}
+
+static PyObject *
+TreeSequence_D2_ij_matrix(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_matrix(self, args, kwds, 2, tsk_treeseq_D2_ij);
+}
+
+static PyObject *
+TreeSequence_r2_ij_matrix(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_matrix(self, args, kwds, 2, tsk_treeseq_r2_ij);
 }
 
 static PyObject *
@@ -10973,6 +11120,14 @@ static PyMethodDef TreeSequence_methods[] = {
         .ml_meth = (PyCFunction) TreeSequence_pi2_unbiased_matrix,
         .ml_flags = METH_VARARGS | METH_KEYWORDS,
         .ml_doc = "Computes the unbiased pi2 matrix." },
+    { .ml_name = "D2_ij_matrix",
+        .ml_meth = (PyCFunction) TreeSequence_D2_ij_matrix,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the two-way D^2 matrix." },
+    { .ml_name = "r2_ij_matrix",
+        .ml_meth = (PyCFunction) TreeSequence_r2_ij_matrix,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the two-way r^2 matrix." },
     { NULL } /* Sentinel */
 };
 

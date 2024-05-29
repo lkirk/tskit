@@ -2205,7 +2205,7 @@ out:
 }
 
 static int
-norm_hap_weighted(tsk_size_t state_dim, const double *hap_weights,
+norm_hap_weighted(tsk_size_t result_dim, const double *hap_weights,
     tsk_size_t TSK_UNUSED(n_a), tsk_size_t TSK_UNUSED(n_b), double *result, void *params)
 {
     sample_count_stat_params_t args = *(sample_count_stat_params_t *) params;
@@ -2213,7 +2213,7 @@ norm_hap_weighted(tsk_size_t state_dim, const double *hap_weights,
     double n;
     tsk_size_t k;
 
-    for (k = 0; k < state_dim; k++) {
+    for (k = 0; k < result_dim; k++) {
         weight_row = GET_2D_ROW(hap_weights, 3, k);
         n = (double) args.sample_set_sizes[k];
         // TODO: what to do when n = 0
@@ -2223,12 +2223,12 @@ norm_hap_weighted(tsk_size_t state_dim, const double *hap_weights,
 }
 
 static int
-norm_total_weighted(tsk_size_t state_dim, const double *TSK_UNUSED(hap_weights),
+norm_total_weighted(tsk_size_t result_dim, const double *TSK_UNUSED(hap_weights),
     tsk_size_t n_a, tsk_size_t n_b, double *result, void *TSK_UNUSED(params))
 {
     tsk_size_t k;
 
-    for (k = 0; k < state_dim; k++) {
+    for (k = 0; k < result_dim; k++) {
         result[k] = 1 / (double) (n_a * n_b);
     }
     return 0;
@@ -2248,7 +2248,7 @@ get_all_samples_bits(tsk_bit_array_t *all_samples, tsk_size_t n)
     }
 }
 
-typedef int norm_func_t(tsk_size_t state_dim, const double *hap_weights, tsk_size_t n_a,
+typedef int norm_func_t(tsk_size_t result_dim, const double *hap_weights, tsk_size_t n_a,
     tsk_size_t n_b, double *result, void *params);
 
 static int
@@ -2332,15 +2332,15 @@ compute_general_two_site_stat_result(const tsk_bit_array_t *site_a_state,
             if (ret != 0) {
                 goto out;
             }
-            ret = norm_f(state_dim, weights, num_a_alleles - polarised_val,
+            ret = norm_f(result_dim, weights, num_a_alleles - polarised_val,
                 num_b_alleles - polarised_val, norm, f_params);
             if (ret != 0) {
                 goto out;
             }
-            for (k = 0; k < state_dim; k++) {
+            for (k = 0; k < result_dim; k++) {
                 result[k] += result_tmp_row[k] * norm[k];
             }
-            result_tmp_row += state_dim; // Advance to the next column
+            result_tmp_row += result_dim; // Advance to the next column
         }
     }
 
@@ -2897,7 +2897,7 @@ out:
 static int
 compute_two_tree_branch_state_update(const tsk_treeseq_t *ts, tsk_id_t c,
     tsk_bit_array_t *child_samples, const iter_state *A_state, const iter_state *B_state,
-    tsk_size_t state_dim, int sign, general_stat_func_t *f,
+    tsk_size_t state_dim, tsk_size_t result_dim, int sign, general_stat_func_t *f,
     sample_count_stat_params_t *f_params, double *result)
 {
     int ret = 0;
@@ -2913,7 +2913,7 @@ compute_two_tree_branch_state_update(const tsk_treeseq_t *ts, tsk_id_t c,
     double *weights_row;
     tsk_bit_array_t A_samples, B_samples, AB_samples, node_samples_tmp;
     double *weights = tsk_calloc(3 * state_dim, sizeof(*weights));
-    double *result_tmp = tsk_calloc(3 * state_dim, sizeof(*result_tmp));
+    double *result_tmp = tsk_calloc(result_dim, sizeof(*result_tmp));
 
     tsk_memset(&AB_samples, 0, sizeof(AB_samples));
     tsk_memset(&node_samples_tmp, 0, sizeof(node_samples_tmp));
@@ -2950,11 +2950,11 @@ compute_two_tree_branch_state_update(const tsk_treeseq_t *ts, tsk_id_t c,
             weights_row[2]
                 = (double) tsk_bit_array_count(&B_samples) - weights_row[0]; // w_aB
         }
-        ret = f(state_dim, weights, state_dim, result_tmp, f_params);
+        ret = f(state_dim, weights, result_dim, result_tmp, f_params);
         if (ret != 0) {
             goto out;
         }
-        for (k = 0; k < state_dim; k++) {
+        for (k = 0; k < result_dim; k++) {
             result[k] += result_tmp[k] * a_len * b_len;
         }
 
@@ -2976,11 +2976,11 @@ compute_two_tree_branch_state_update(const tsk_treeseq_t *ts, tsk_id_t c,
                 weights_row[2] = (double) tsk_bit_array_count(&node_samples_tmp)
                                  - weights_row[0]; // w_aB
             }
-            ret = f(state_dim, weights, state_dim, result_tmp, f_params);
+            ret = f(state_dim, weights, result_dim, result_tmp, f_params);
             if (ret != 0) {
                 goto out;
             }
-            for (k = 0; k < state_dim; k++) {
+            for (k = 0; k < result_dim; k++) {
                 result[k] -= result_tmp[k] * a_len * b_len;
             }
         }
@@ -2996,7 +2996,7 @@ out:
 static int
 compute_two_tree_branch_stat(const tsk_treeseq_t *ts, const iter_state *l_state,
     iter_state *r_state, general_stat_func_t *f, sample_count_stat_params_t *f_params,
-    tsk_size_t state_dim, double *result)
+    tsk_size_t result_dim, tsk_size_t state_dim, double *result)
 {
     int ret = 0;
     tsk_id_t e, c, p;
@@ -3028,8 +3028,8 @@ compute_two_tree_branch_stat(const tsk_treeseq_t *ts, const iter_state *l_state,
         }
         in_parent = NULL;
         while (p != TSK_NULL) {
-            compute_two_tree_branch_state_update(
-                ts, c, in_parent, l_state, r_state, state_dim, -1, f, f_params, result);
+            compute_two_tree_branch_state_update(ts, c, in_parent, l_state, r_state,
+                state_dim, result_dim, -1, f, f_params, result);
             if (in_parent != NULL) {
                 for (k = 0; k < state_dim; k++) {
                     tsk_bit_array_get_row(
@@ -3075,8 +3075,8 @@ compute_two_tree_branch_stat(const tsk_treeseq_t *ts, const iter_state *l_state,
                 tsk_bit_array_get_row(&child_samples, k, &child_samples_row);
                 tsk_bit_array_add(&samples_row, &child_samples_row);
             }
-            compute_two_tree_branch_state_update(
-                ts, c, in_parent, l_state, r_state, state_dim, +1, f, f_params, result);
+            compute_two_tree_branch_state_update(ts, c, in_parent, l_state, r_state,
+                state_dim, result_dim, +1, f, f_params, result);
             in_parent = &child_samples;
             c = p;
             p = r_state->parent[p];
@@ -3090,11 +3090,10 @@ out:
 // TODO: deal with unused params
 static int
 tsk_treeseq_two_branch_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
-    const tsk_bit_array_t *sample_sets, tsk_size_t TSK_UNUSED(result_dim),
-    general_stat_func_t *f, sample_count_stat_params_t *f_params,
-    norm_func_t *TSK_UNUSED(norm_f), tsk_size_t n_rows, const double *row_positions,
-    tsk_size_t n_cols, const double *col_positions, tsk_flags_t TSK_UNUSED(options),
-    double *result)
+    const tsk_bit_array_t *sample_sets, tsk_size_t result_dim, general_stat_func_t *f,
+    sample_count_stat_params_t *f_params, norm_func_t *TSK_UNUSED(norm_f),
+    tsk_size_t n_rows, const double *row_positions, tsk_size_t n_cols,
+    const double *col_positions, tsk_flags_t TSK_UNUSED(options), double *result)
 {
     int ret = 0;
     const tsk_size_t num_nodes = self->tables->nodes.num_rows;
@@ -3107,7 +3106,7 @@ tsk_treeseq_two_branch_count_stat(const tsk_treeseq_t *self, tsk_size_t state_di
     tsk_memset(&node_samples, 0, sizeof(node_samples));
     tsk_memset(&l_state, 0, sizeof(l_state));
     tsk_memset(&r_state, 0, sizeof(r_state));
-    stat = tsk_malloc(state_dim * sizeof(*stat));
+    stat = tsk_malloc(result_dim * sizeof(*stat));
     if (stat == NULL) {
         ret = TSK_ERR_NO_MEMORY;
         goto out;
@@ -3143,15 +3142,15 @@ tsk_treeseq_two_branch_count_stat(const tsk_treeseq_t *self, tsk_size_t state_di
     iter_state_clear(&l_state, state_dim, num_nodes, &node_samples);
     row = 0;
     for (r = 0; (tsk_id_t) r < (row_indices[n_rows - 1] - row_indices[0] + 1); r++) {
-        tsk_memset(stat, 0, state_dim * sizeof(*stat));
+        tsk_memset(stat, 0, result_dim * sizeof(*stat));
         iter_state_clear(&r_state, state_dim, num_nodes, &node_samples);
         ret = advance_collect_edges(&l_state, (tsk_id_t) r + row_indices[0]);
         if (ret != 0) {
             goto out;
         }
-        result_row = GET_2D_ROW(result, state_dim * n_cols, row);
+        result_row = GET_2D_ROW(result, result_dim * n_cols, row);
         ret = compute_two_tree_branch_stat(
-            self, &r_state, &l_state, f, f_params, state_dim, stat);
+            self, &r_state, &l_state, f, f_params, result_dim, state_dim, stat);
         if (ret != 0) {
             goto out;
         }
@@ -3162,19 +3161,19 @@ tsk_treeseq_two_branch_count_stat(const tsk_treeseq_t *self, tsk_size_t state_di
                 goto out;
             }
             ret = compute_two_tree_branch_stat(
-                self, &l_state, &r_state, f, f_params, state_dim, stat);
+                self, &l_state, &r_state, f, f_params, result_dim, state_dim, stat);
             if (ret != 0) {
                 goto out;
             }
             for (i = 0; i < row_repeats[r]; i++) {
                 for (j = 0; j < col_repeats[c]; j++) {
-                    result_row = GET_2D_ROW(result, state_dim * n_cols, row + i);
-                    for (k = 0; k < state_dim; k++) {
-                        result_row[col + (j * state_dim) + k] = stat[k];
+                    result_row = GET_2D_ROW(result, result_dim * n_cols, row + i);
+                    for (k = 0; k < result_dim; k++) {
+                        result_row[col + (j * result_dim) + k] = stat[k];
                     }
                 }
             }
-            col += (col_repeats[c] * state_dim);
+            col += (col_repeats[c] * result_dim);
         }
         row += row_repeats[r];
     }
@@ -3222,17 +3221,18 @@ tsk_treeseq_two_locus_count_stat(const tsk_treeseq_t *self, tsk_size_t num_sampl
         ret = TSK_ERR_MULTIPLE_STAT_MODES;
         goto out;
     }
-    // TODO: impossible until we implement windows
-    // if (result_dim < 1) {
-    //     ret = TSK_ERR_BAD_RESULT_DIMS;
-    //     goto out;
-    // }
     ret = tsk_treeseq_check_sample_sets(
         self, num_sample_sets, sample_set_sizes, sample_sets);
     if (ret != 0) {
         goto out;
     }
-    tsk_bug_assert(state_dim > 0);
+    if (result_dim < 1) {
+        ret = TSK_ERR_BAD_RESULT_DIMS;
+        goto out;
+    }
+    if (state_dim < 1) {
+        ret = TSK_ERR_BAD_STATE_DIMS;
+    };
     ret = sample_sets_to_bit_array(
         self, sample_set_sizes, sample_sets, num_sample_sets, &sample_sets_bits);
     if (ret != 0) {
@@ -4718,6 +4718,127 @@ tsk_treeseq_f2(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     ret = tsk_treeseq_sample_count_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_index_tuples, index_tuples, f2_summary_func, num_windows,
         windows, options, result);
+out:
+    return ret;
+}
+
+static int
+D2_ij_summary_func(tsk_size_t TSK_UNUSED(state_dim), const double *state,
+    tsk_size_t result_dim, double *result, void *params)
+{
+    sample_count_stat_params_t args = *(sample_count_stat_params_t *) params;
+    const double *state_row;
+    double n;
+    tsk_size_t k;
+    tsk_id_t i, j;
+    double p_A, p_B, p_AB, p_Ab, p_aB, D_i, D_j;
+
+    for (k = 0; k < result_dim; k++) {
+        i = args.set_indexes[2 * k];
+        j = args.set_indexes[2 * k + 1];
+
+        n = (double) args.sample_set_sizes[i];
+        state_row = GET_2D_ROW(state, 3, i);
+        p_AB = state_row[0] / n;
+        p_Ab = state_row[1] / n;
+        p_aB = state_row[2] / n;
+        p_A = p_AB + p_Ab;
+        p_B = p_AB + p_aB;
+        D_i = p_AB - (p_A * p_B);
+
+        n = (double) args.sample_set_sizes[j];
+        state_row = GET_2D_ROW(state, 3, j);
+        p_AB = state_row[0] / n;
+        p_Ab = state_row[1] / n;
+        p_aB = state_row[2] / n;
+        p_A = p_AB + p_Ab;
+        p_B = p_AB + p_aB;
+        D_j = p_AB - (p_A * p_B);
+
+        result[k] = D_i * D_j;
+    }
+
+    return 0;
+}
+
+int
+tsk_treeseq_D2_ij(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, const double *row_positions, tsk_size_t num_cols,
+    const tsk_id_t *col_sites, const double *col_positions, tsk_flags_t options,
+    double *result)
+{
+    int ret = 0;
+    ret = check_sample_stat_inputs(num_sample_sets, 2, num_index_tuples, index_tuples);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsk_treeseq_two_locus_count_stat(self, num_sample_sets, sample_set_sizes,
+        sample_sets, num_index_tuples, index_tuples, D2_ij_summary_func,
+        norm_total_weighted, num_rows, row_sites, row_positions, num_cols, col_sites,
+        col_positions, options, result);
+out:
+    return ret;
+}
+
+static int
+r2_ij_summary_func(tsk_size_t TSK_UNUSED(state_dim), const double *state,
+    tsk_size_t result_dim, double *result, void *params)
+{
+    sample_count_stat_params_t args = *(sample_count_stat_params_t *) params;
+    double n;
+    const double *state_row;
+    tsk_size_t k;
+    tsk_id_t i, j;
+    double p_AB, p_Ab, p_aB, p_A, p_B, D_i, D_j, denom_i, denom_j;
+
+    for (k = 0; k < result_dim; k++) {
+        i = args.set_indexes[2 * k];
+        j = args.set_indexes[2 * k + 1];
+
+        n = (double) args.sample_set_sizes[i];
+        state_row = GET_2D_ROW(state, 3, i);
+        p_AB = state_row[0] / n;
+        p_Ab = state_row[1] / n;
+        p_aB = state_row[2] / n;
+        p_A = p_AB + p_Ab;
+        p_B = p_AB + p_aB;
+        D_i = p_AB - (p_A * p_B);
+        denom_i = sqrt(p_A * p_B * (1 - p_A) * (1 - p_B));
+
+        n = (double) args.sample_set_sizes[j];
+        state_row = GET_2D_ROW(state, 3, j);
+        p_AB = state_row[0] / n;
+        p_Ab = state_row[1] / n;
+        p_aB = state_row[2] / n;
+        p_A = p_AB + p_Ab;
+        p_B = p_AB + p_aB;
+        D_j = p_AB - (p_A * p_B);
+        denom_j = sqrt(p_A * p_B * (1 - p_A) * (1 - p_B));
+
+        result[k] = (D_i * D_j) / (denom_i * denom_j);
+    }
+    return 0;
+}
+
+int
+tsk_treeseq_r2_ij(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, const double *row_positions, tsk_size_t num_cols,
+    const tsk_id_t *col_sites, const double *col_positions, tsk_flags_t options,
+    double *result)
+{
+    int ret = 0;
+    ret = check_sample_stat_inputs(num_sample_sets, 2, num_index_tuples, index_tuples);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsk_treeseq_two_locus_count_stat(self, num_sample_sets, sample_set_sizes,
+        sample_sets, num_index_tuples, index_tuples, r2_ij_summary_func,
+        norm_hap_weighted, num_rows, row_sites, row_positions, num_cols, col_sites,
+        col_positions, options, result);
 out:
     return ret;
 }

@@ -7576,6 +7576,41 @@ class TreeSequence:
                 stat = stat[()]
         return stat
 
+    def parse_sites(self, sites):
+        row_sites, col_sites = None, None
+        if sites is not None:
+            if any(not hasattr(a, "__getitem__") or isinstance(a, str) for a in sites):
+                raise ValueError("Sites must be a list of lists, tuples, or ndarrays")
+            if len(sites) == 2:
+                row_sites, col_sites = sites
+            elif len(sites) == 1:
+                row_sites = col_sites = sites[0]
+            else:
+                raise ValueError(
+                    f"Sites must be a length 1 or 2 list, got a length {len(sites)} list"
+                )
+        return row_sites, col_sites
+
+    def parse_positions(self, positions):
+        row_positions, col_positions = None, None
+        if positions is not None:
+            if any(
+                not hasattr(a, "__getitem__") or isinstance(a, str) for a in positions
+            ):
+                raise ValueError(
+                    "Positions must be a list of lists, tuples, or ndarrays"
+                )
+            if len(positions) == 2:
+                row_positions, col_positions = positions
+            elif len(positions) == 1:
+                row_positions = col_positions = positions[0]
+            else:
+                raise ValueError(
+                    "Positions must be a length 1 or 2 list, "
+                    f"got a length {len(positions)} list"
+                )
+        return row_positions, col_positions
+
     def __two_locus_sample_set_stat(
         self,
         ll_method,
@@ -7586,31 +7621,8 @@ class TreeSequence:
     ):
         if sample_sets is None:
             sample_sets = self.samples()
-        if sites is not None and any(
-            not hasattr(a, "__getitem__") or isinstance(a, str) for a in sites
-        ):
-            raise ValueError("Sites must be a list of lists, tuples, or ndarrays")
-        row_sites, col_sites = None, None
-        row_positions, col_positions = None, None
-        if sites is not None:
-            if len(sites) == 2:
-                row_sites, col_sites = sites
-            elif len(sites) == 1:
-                row_sites = col_sites = sites[0]
-            else:
-                raise ValueError(
-                    f"Sites must be a length 1 or 2 list, got a length {len(sites)} list"
-                )
-        if positions is not None:
-            if len(positions) == 2:
-                row_positions, col_positions = positions
-            elif len(positions) == 1:
-                row_positions = col_positions = positions[0]
-            else:
-                raise ValueError(
-                    "Positions must be a length 1 or 2 list, "
-                    f"got a length {len(positions)} list"
-                )
+        row_sites, col_sites = self.parse_sites(sites)
+        row_positions, col_positions = self.parse_positions(positions)
 
         # First try to convert to a 1D numpy array. If we succeed, then we strip off
         # the corresponding dimension from the output.
@@ -7651,6 +7663,62 @@ class TreeSequence:
             # With this orientation, we get one LD matrix per sample set.
             result = result.swapaxes(0, 2).swapaxes(1, 2)
 
+        return result
+
+    def __k_way_two_locus_sample_set_stat(
+        self,
+        ll_method,
+        k,
+        sample_sets,
+        indexes=None,
+        sites=None,
+        positions=None,
+        mode=None,
+        polarised=False,
+    ):
+        sample_set_sizes = np.array(
+            [len(sample_set) for sample_set in sample_sets], dtype=np.uint32
+        )
+        if np.any(sample_set_sizes == 0):
+            raise ValueError("Sample sets must contain at least one element")
+        flattened = util.safe_np_int_cast(np.hstack(sample_sets), np.int32)
+        row_sites, col_sites = self.parse_sites(sites)
+        row_positions, col_positions = self.parse_positions(positions)
+        # drop_based_on_index = False
+        if indexes is None:
+            # drop_based_on_index = True
+            if len(sample_sets) != k:
+                raise ValueError(
+                    "Must specify indexes if there are not exactly {} sample "
+                    "sets.".format(k)
+                )
+            indexes = np.arange(k, dtype=np.int32)
+        drop_dimension = False
+        indexes = util.safe_np_int_cast(indexes, np.int32)
+        if len(indexes.shape) == 1:
+            indexes = indexes.reshape((1, indexes.shape[0]))
+            drop_dimension = True
+        if len(indexes.shape) != 2 or indexes.shape[1] != k:
+            raise ValueError(
+                "Indexes must be convertable to a 2D numpy array with {} "
+                "columns".format(k)
+            )
+        result = ll_method(
+            sample_set_sizes,
+            flattened,
+            indexes,
+            row_sites,
+            col_sites,
+            row_positions,
+            col_positions,
+            mode,
+        )
+        if drop_dimension:
+            result = result.reshape(result.shape[:2])
+        else:
+            # Orient the data so that the first dimension is the sample set.
+            # With this orientation, we get one LD matrix per sample set.
+            result = result.swapaxes(0, 2).swapaxes(1, 2)
         return result
 
     def __k_way_sample_set_stat(
@@ -9484,6 +9552,37 @@ class TreeSequence:
         return self.__two_locus_sample_set_stat(
             two_locus_stat,
             sample_sets,
+            sites=sites,
+            positions=positions,
+            mode=mode,
+        )
+
+    def ld_matrix_two_way(
+        self,
+        sample_sets,
+        indexes=None,
+        sites=None,
+        positions=None,
+        mode="site",
+        stat="D2_ij",
+    ):
+        stats = {
+            "D2_ij": self._ll_tree_sequence.D2_ij_matrix,
+            "r2_ij": self._ll_tree_sequence.r2_ij_matrix,
+        }
+
+        try:
+            two_locus_stat = stats[stat]
+        except KeyError:
+            raise ValueError(
+                f"Unknown two-locus statistic '{stat}', we support: {list(stats.keys())}"
+            )
+
+        return self.__k_way_two_locus_sample_set_stat(
+            two_locus_stat,
+            2,
+            sample_sets,
+            indexes=indexes,
             sites=sites,
             positions=positions,
             mode=mode,
