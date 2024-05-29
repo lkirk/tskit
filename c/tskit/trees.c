@@ -2270,14 +2270,15 @@ compute_general_two_site_stat_result(const tsk_bit_array_t *site_a_state,
     // a2   [s1, s2, s3] [s1, s2, s3] [s1, s2, s3]
     // a3   [s1, s2, s3] [s1, s2, s3] [s1, s2, s3]
     tsk_size_t k, mut_a, mut_b;
-    tsk_size_t row_len = num_b_alleles * state_dim;
+    tsk_size_t result_row_len = num_b_alleles * result_dim;
     tsk_size_t w_A = 0, w_B = 0, w_AB = 0;
     uint8_t polarised_val = polarised ? 1 : 0;
     double *hap_weight_row;
     double *result_tmp_row;
     double *weights = tsk_malloc(3 * state_dim * sizeof(*weights));
-    double *norm = tsk_malloc(state_dim * sizeof(*norm));
-    double *result_tmp = tsk_malloc(row_len * num_a_alleles * sizeof(*result_tmp));
+    double *norm = tsk_malloc(result_dim * sizeof(*norm));
+    double *result_tmp
+        = tsk_malloc(result_row_len * num_a_alleles * sizeof(*result_tmp));
 
     tsk_memset(&ss_A_samples, 0, sizeof(ss_A_samples));
     tsk_memset(&ss_B_samples, 0, sizeof(ss_B_samples));
@@ -2307,7 +2308,7 @@ compute_general_two_site_stat_result(const tsk_bit_array_t *site_a_state,
     }
 
     for (mut_a = polarised_val; mut_a < num_a_alleles; mut_a++) {
-        result_tmp_row = GET_2D_ROW(result_tmp, row_len, mut_a);
+        result_tmp_row = GET_2D_ROW(result_tmp, result_row_len, mut_a);
         for (mut_b = polarised_val; mut_b < num_b_alleles; mut_b++) {
             tsk_bit_array_get_row(site_a_state, mut_a, &A_samples);
             tsk_bit_array_get_row(site_b_state, mut_b, &B_samples);
