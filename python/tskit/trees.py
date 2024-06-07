@@ -7674,7 +7674,6 @@ class TreeSequence:
         sites=None,
         positions=None,
         mode=None,
-        polarised=False,
     ):
         sample_set_sizes = np.array(
             [len(sample_set) for sample_set in sample_sets], dtype=np.uint32
@@ -9564,12 +9563,21 @@ class TreeSequence:
         sites=None,
         positions=None,
         mode="site",
-        stat="D2_ij",
+        stat="r2",
     ):
         stats = {
-            "D2_ij": self._ll_tree_sequence.D2_ij_matrix,
-            "r2_ij": self._ll_tree_sequence.r2_ij_matrix,
+            "D2": self._ll_tree_sequence.D2_ij_matrix,
+            "D2_unbiased": self._ll_tree_sequence.D2_ij_unbiased_matrix,
+            "r2": self._ll_tree_sequence.r2_ij_matrix,
         }
+
+        if stat.endswith("_unbiased"):
+            for s1, s2 in itertools.combinations(sample_sets, 2):
+                if not set(s1).isdisjoint(s2):
+                    raise ValueError(
+                        "Unbiased stats require disjoint sample sets. "
+                        f"Sample sets are disjoint: {s1}, {s2}"
+                    )
 
         try:
             two_locus_stat = stats[stat]
@@ -9581,6 +9589,72 @@ class TreeSequence:
         return self.__k_way_two_locus_sample_set_stat(
             two_locus_stat,
             2,
+            sample_sets,
+            indexes=indexes,
+            sites=sites,
+            positions=positions,
+            mode=mode,
+        )
+
+    def ld_matrix_three_way(
+        self,
+        sample_sets,
+        indexes=None,
+        sites=None,
+        positions=None,
+        mode="site",
+        stat="Dz",
+    ):
+        if stat == "Dz_unbiased":
+            raise Exception("Dz_unbiased is untested")
+        stats = {
+            "Dz": self._ll_tree_sequence.Dz_ijk_matrix,
+            "Dz_unbiased": self._ll_tree_sequence.Dz_unbiased_ijk_matrix,
+        }
+
+        try:
+            two_locus_stat = stats[stat]
+        except KeyError:
+            raise ValueError(
+                f"Unknown two-locus statistic '{stat}', we support: {list(stats.keys())}"
+            )
+
+        return self.__k_way_two_locus_sample_set_stat(
+            two_locus_stat,
+            3,
+            sample_sets,
+            indexes=indexes,
+            sites=sites,
+            positions=positions,
+            mode=mode,
+        )
+
+    def ld_matrix_four_way(
+        self,
+        sample_sets,
+        indexes=None,
+        sites=None,
+        positions=None,
+        mode="site",
+        stat="pi2",
+    ):
+        if stat == "pi2_unbiased":
+            raise Exception("pi2_unbiased is untested")
+        stats = {
+            "pi2": self._ll_tree_sequence.pi2_ijkl_matrix,
+            "pi2_unbiased": self._ll_tree_sequence.pi2_unbiased_ijkl_matrix,
+        }
+
+        try:
+            two_locus_stat = stats[stat]
+        except KeyError:
+            raise ValueError(
+                f"Unknown two-locus statistic '{stat}', we support: {list(stats.keys())}"
+            )
+
+        return self.__k_way_two_locus_sample_set_stat(
+            two_locus_stat,
+            4,
             sample_sets,
             indexes=indexes,
             sites=sites,

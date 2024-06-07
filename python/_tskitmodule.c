@@ -10343,9 +10343,41 @@ TreeSequence_D2_ij_matrix(TreeSequence *self, PyObject *args, PyObject *kwds)
 }
 
 static PyObject *
+TreeSequence_D2_ij_unbiased_matrix(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_matrix(self, args, kwds, 2, tsk_treeseq_D2_ij_unbiased);
+}
+
+static PyObject *
 TreeSequence_r2_ij_matrix(TreeSequence *self, PyObject *args, PyObject *kwds)
 {
     return TreeSequence_k_way_ld_matrix(self, args, kwds, 2, tsk_treeseq_r2_ij);
+}
+
+static PyObject *
+TreeSequence_Dz_ijk_matrix(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_matrix(self, args, kwds, 3, tsk_treeseq_Dz_ijk);
+}
+
+static PyObject *
+TreeSequence_Dz_unbiased_ijk_matrix(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_matrix(
+        self, args, kwds, 3, tsk_treeseq_Dz_unbiased_ijk);
+}
+
+static PyObject *
+TreeSequence_pi2_ijkl_matrix(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_matrix(self, args, kwds, 4, tsk_treeseq_pi2_ijkl);
+}
+
+static PyObject *
+TreeSequence_pi2_unbiased_ijkl_matrix(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_matrix(
+        self, args, kwds, 4, tsk_treeseq_pi2_unbiased_ijkl);
 }
 
 static PyObject *
@@ -11124,10 +11156,30 @@ static PyMethodDef TreeSequence_methods[] = {
         .ml_meth = (PyCFunction) TreeSequence_D2_ij_matrix,
         .ml_flags = METH_VARARGS | METH_KEYWORDS,
         .ml_doc = "Computes the two-way D^2 matrix." },
+    { .ml_name = "D2_ij_unbiased_matrix",
+        .ml_meth = (PyCFunction) TreeSequence_D2_ij_unbiased_matrix,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the two-way unbiased D^2 matrix." },
     { .ml_name = "r2_ij_matrix",
         .ml_meth = (PyCFunction) TreeSequence_r2_ij_matrix,
         .ml_flags = METH_VARARGS | METH_KEYWORDS,
         .ml_doc = "Computes the two-way r^2 matrix." },
+    { .ml_name = "Dz_ijk_matrix",
+        .ml_meth = (PyCFunction) TreeSequence_Dz_ijk_matrix,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the three-way Dz matrix." },
+    { .ml_name = "Dz_unbiased_ijk_matrix",
+        .ml_meth = (PyCFunction) TreeSequence_Dz_unbiased_ijk_matrix,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the three-way unbiased Dz matrix." },
+    { .ml_name = "pi2_ijkl_matrix",
+        .ml_meth = (PyCFunction) TreeSequence_pi2_ijkl_matrix,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the four-way pi2 matrix." },
+    { .ml_name = "pi2_unbiased_ijkl_matrix",
+        .ml_meth = (PyCFunction) TreeSequence_pi2_unbiased_ijkl_matrix,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the four-way unbiased pi2 matrix." },
     { NULL } /* Sentinel */
 };
 

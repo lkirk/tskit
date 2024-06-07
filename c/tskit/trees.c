@@ -4784,6 +4784,80 @@ out:
 }
 
 static int
+D2_ij_unbiased_summary_func(tsk_size_t TSK_UNUSED(state_dim), const double *state,
+    tsk_size_t result_dim, double *result, void *params)
+{
+    sample_count_stat_params_t args = *(sample_count_stat_params_t *) params;
+    const double *state_row;
+    tsk_size_t k;
+    tsk_id_t i, j;
+    double n_i, n_j;
+    double w_AB_i, w_Ab_i, w_aB_i, w_ab_i;
+    double w_AB_j, w_Ab_j, w_aB_j, w_ab_j;
+
+    for (k = 0; k < result_dim; k++) {
+        i = args.set_indexes[2 * k];
+        j = args.set_indexes[2 * k + 1];
+        if (i == j) {
+            // This is why we require disjoint sample sets for unbiased stats
+            n_i = (double) args.sample_set_sizes[i];
+            state_row = GET_2D_ROW(state, 3, i);
+            w_AB_i = state_row[0];
+            w_Ab_i = state_row[1];
+            w_aB_i = state_row[2];
+            w_ab_i = n_i - (w_AB_i + w_Ab_i + w_aB_i);
+            result[k] = (w_AB_i * (w_AB_i - 1) * w_ab_i * (w_ab_i - 1)
+                            + w_Ab_i * (w_Ab_i - 1) * w_aB_i * (w_aB_i - 1)
+                            - 2 * w_AB_i * w_Ab_i * w_aB_i * w_ab_i)
+                        / n_i / (n_i - 1) / (n_i - 2) / (n_i - 3);
+        }
+
+        else {
+            n_i = (double) args.sample_set_sizes[i];
+            state_row = GET_2D_ROW(state, 3, i);
+            w_AB_i = state_row[0];
+            w_Ab_i = state_row[1];
+            w_aB_i = state_row[2];
+            w_ab_i = n_i - (w_AB_i + w_Ab_i + w_aB_i);
+
+            n_j = (double) args.sample_set_sizes[j];
+            state_row = GET_2D_ROW(state, 3, j);
+            w_AB_j = state_row[0];
+            w_Ab_j = state_row[1];
+            w_aB_j = state_row[2];
+            w_ab_j = n_j - (w_AB_j + w_Ab_j + w_aB_j);
+
+            result[k] = (w_Ab_i * w_aB_i - w_AB_i * w_ab_i)
+                        * (w_Ab_j * w_aB_j - w_AB_j * w_ab_j) / n_i / (n_i - 1) / n_j
+                        / (n_j - 1);
+        }
+    }
+
+    return 0;
+}
+
+int
+tsk_treeseq_D2_ij_unbiased(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, const double *row_positions, tsk_size_t num_cols,
+    const tsk_id_t *col_sites, const double *col_positions, tsk_flags_t options,
+    double *result)
+{
+    int ret = 0;
+    ret = check_sample_stat_inputs(num_sample_sets, 2, num_index_tuples, index_tuples);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsk_treeseq_two_locus_count_stat(self, num_sample_sets, sample_set_sizes,
+        sample_sets, num_index_tuples, index_tuples, D2_ij_unbiased_summary_func,
+        norm_total_weighted, num_rows, row_sites, row_positions, num_cols, col_sites,
+        col_positions, options, result);
+out:
+    return ret;
+}
+
+static int
 r2_ij_summary_func(tsk_size_t TSK_UNUSED(state_dim), const double *state,
     tsk_size_t result_dim, double *result, void *params)
 {
@@ -4933,6 +5007,137 @@ out:
     return ret;
 }
 
+static int
+Dz_ijk_summary_func(tsk_size_t TSK_UNUSED(state_dim), const double *state,
+    tsk_size_t result_dim, double *result, void *params)
+{
+    sample_count_stat_params_t args = *(sample_count_stat_params_t *) params;
+    const double *state_row;
+    double n;
+    tsk_id_t i, j, k;
+    double p_A, p_B, p_AB, p_Ab, p_aB, D;
+    tsk_size_t tuple_index;
+
+    for (tuple_index = 0; tuple_index < result_dim; tuple_index++) {
+        i = args.set_indexes[3 * tuple_index];
+        j = args.set_indexes[3 * tuple_index + 1];
+        k = args.set_indexes[3 * tuple_index + 2];
+
+        n = (double) args.sample_set_sizes[i];
+        state_row = GET_2D_ROW(state, 3, i);
+        p_AB = state_row[0] / n;
+        p_Ab = state_row[1] / n;
+        p_aB = state_row[2] / n;
+        p_A = p_AB + p_Ab;
+        p_B = p_AB + p_aB;
+        D = p_AB - (p_A * p_B);
+
+        n = (double) args.sample_set_sizes[j];
+        state_row = GET_2D_ROW(state, 3, j);
+        p_AB = state_row[0] / n;
+        p_Ab = state_row[1] / n;
+        p_A = p_AB + p_Ab;
+
+        n = (double) args.sample_set_sizes[k];
+        state_row = GET_2D_ROW(state, 3, k);
+        p_AB = state_row[0] / n;
+        p_aB = state_row[2] / n;
+        p_B = p_AB + p_aB;
+
+        result[tuple_index] = D * (1 - 2 * p_A) * (1 - 2 * p_B);
+    }
+    return 0;
+}
+
+int
+tsk_treeseq_Dz_ijk(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, const double *row_positions, tsk_size_t num_cols,
+    const tsk_id_t *col_sites, const double *col_positions, tsk_flags_t options,
+    double *result)
+{
+    int ret = 0;
+    ret = check_sample_stat_inputs(num_sample_sets, 3, num_index_tuples, index_tuples);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsk_treeseq_two_locus_count_stat(self, num_sample_sets, sample_set_sizes,
+        sample_sets, num_index_tuples, index_tuples, Dz_ijk_summary_func,
+        norm_total_weighted, num_rows, row_sites, row_positions, num_cols, col_sites,
+        col_positions, options, result);
+out:
+    return ret;
+}
+
+static int
+Dz_unbiased_ijk_summary_func(tsk_size_t TSK_UNUSED(state_dim), const double *state,
+    tsk_size_t result_dim, double *result, void *params)
+{
+    sample_count_stat_params_t args = *(sample_count_stat_params_t *) params;
+    const double *state_row;
+    tsk_id_t i, j, k;
+    double n_i, n_j, n_k;
+    double w_AB_i, w_Ab_i, w_aB_i, w_ab_i;
+    double w_AB_j, w_Ab_j, w_aB_j, w_ab_j;
+    double w_AB_k, w_Ab_k, w_aB_k, w_ab_k;
+    tsk_size_t tuple_index;
+
+    for (tuple_index = 0; tuple_index < result_dim; tuple_index++) {
+        i = args.set_indexes[3 * tuple_index];
+        j = args.set_indexes[3 * tuple_index + 1];
+        k = args.set_indexes[3 * tuple_index + 2];
+
+        n_i = (double) args.sample_set_sizes[i];
+        state_row = GET_2D_ROW(state, 3, i);
+        w_AB_i = state_row[0];
+        w_Ab_i = state_row[1];
+        w_aB_i = state_row[2];
+        w_ab_i = n_i - (w_AB_i + w_Ab_i + w_aB_i);
+
+        n_j = (double) args.sample_set_sizes[j];
+        state_row = GET_2D_ROW(state, 3, j);
+        w_AB_j = state_row[0];
+        w_Ab_j = state_row[1];
+        w_aB_j = state_row[2];
+        w_ab_j = n_j - (w_AB_j + w_Ab_j + w_aB_j);
+
+        n_k = (double) args.sample_set_sizes[k];
+        state_row = GET_2D_ROW(state, 3, k);
+        w_AB_k = state_row[0];
+        w_Ab_k = state_row[1];
+        w_aB_k = state_row[2];
+        w_ab_k = n_k - (w_AB_k + w_Ab_k + w_aB_k);
+
+        result[tuple_index] = -(((w_Ab_i * w_aB_i - w_AB_i * w_ab_i)
+                                  * (w_AB_j + w_Ab_j - w_aB_j - w_ab_j)
+                                  * (w_AB_k - w_Ab_k + w_aB_k - w_ab_k)))
+                              / n_i / (n_i - 1) / n_j / n_k;
+    }
+    return 0;
+}
+
+int
+tsk_treeseq_Dz_unbiased_ijk(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, const double *row_positions, tsk_size_t num_cols,
+    const tsk_id_t *col_sites, const double *col_positions, tsk_flags_t options,
+    double *result)
+{
+    int ret = 0;
+    ret = check_sample_stat_inputs(num_sample_sets, 3, num_index_tuples, index_tuples);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsk_treeseq_two_locus_count_stat(self, num_sample_sets, sample_set_sizes,
+        sample_sets, num_index_tuples, index_tuples, Dz_unbiased_ijk_summary_func,
+        norm_total_weighted, num_rows, row_sites, row_positions, num_cols, col_sites,
+        col_positions, options, result);
+out:
+    return ret;
+}
+
 /***********************************
  * Four way stats
  ***********************************/
@@ -4978,6 +5183,159 @@ tsk_treeseq_f4(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     ret = tsk_treeseq_sample_count_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_index_tuples, index_tuples, f4_summary_func, num_windows,
         windows, options, result);
+out:
+    return ret;
+}
+
+static int
+pi2_ijkl_summary_func(tsk_size_t TSK_UNUSED(state_dim), const double *state,
+    tsk_size_t result_dim, double *result, void *params)
+{
+    sample_count_stat_params_t args = *(sample_count_stat_params_t *) params;
+    const double *state_row;
+    double n;
+    tsk_id_t i, j, k, l;
+    double p_A_i, p_A_j, p_B_k, p_B_l, p_AB, p_Ab, p_aB;
+    tsk_size_t tuple_index;
+
+    for (tuple_index = 0; tuple_index < result_dim; tuple_index++) {
+        i = args.set_indexes[4 * tuple_index];
+        j = args.set_indexes[4 * tuple_index + 1];
+        k = args.set_indexes[4 * tuple_index + 2];
+        l = args.set_indexes[4 * tuple_index + 3];
+
+        n = (double) args.sample_set_sizes[i];
+        state_row = GET_2D_ROW(state, 3, i);
+        p_AB = state_row[0] / n;
+        p_Ab = state_row[1] / n;
+        p_A_i = p_AB + p_Ab;
+
+        n = (double) args.sample_set_sizes[j];
+        state_row = GET_2D_ROW(state, 3, j);
+        p_AB = state_row[0] / n;
+        p_Ab = state_row[1] / n;
+        p_A_j = p_AB + p_Ab;
+
+        n = (double) args.sample_set_sizes[k];
+        state_row = GET_2D_ROW(state, 3, k);
+        p_AB = state_row[0] / n;
+        p_aB = state_row[2] / n;
+        p_B_k = p_AB + p_aB;
+
+        n = (double) args.sample_set_sizes[l];
+        state_row = GET_2D_ROW(state, 3, l);
+        p_AB = state_row[0] / n;
+        p_aB = state_row[2] / n;
+        p_B_l = p_AB + p_aB;
+
+        result[tuple_index] = p_A_i * (1 - p_A_j) * p_B_k * (1 - p_B_l);
+    }
+    return 0;
+}
+
+int
+tsk_treeseq_pi2_ijkl(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, const double *row_positions, tsk_size_t num_cols,
+    const tsk_id_t *col_sites, const double *col_positions, tsk_flags_t options,
+    double *result)
+{
+    int ret = 0;
+    ret = check_sample_stat_inputs(num_sample_sets, 4, num_index_tuples, index_tuples);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsk_treeseq_two_locus_count_stat(self, num_sample_sets, sample_set_sizes,
+        sample_sets, num_index_tuples, index_tuples, pi2_ijkl_summary_func,
+        norm_total_weighted, num_rows, row_sites, row_positions, num_cols, col_sites,
+        col_positions, options, result);
+out:
+    return ret;
+}
+
+static int
+pi2_unbiased_ijkl_summary_func(tsk_size_t TSK_UNUSED(state_dim), const double *state,
+    tsk_size_t result_dim, double *result, void *params)
+{
+    sample_count_stat_params_t args = *(sample_count_stat_params_t *) params;
+    const double *state_row;
+    tsk_id_t i, j, k, l;
+    double n_i, n_j, n_k, n_l;
+    double w_AB_i, w_Ab_i, w_aB_i, w_ab_i;
+    double w_AB_j, w_Ab_j, w_aB_j, w_ab_j;
+    double w_AB_k, w_Ab_k, w_aB_k, w_ab_k;
+    double w_AB_l, w_Ab_l, w_aB_l, w_ab_l;
+    tsk_size_t tuple_index;
+
+    for (tuple_index = 0; tuple_index < result_dim; tuple_index++) {
+        i = args.set_indexes[4 * tuple_index];
+        j = args.set_indexes[4 * tuple_index + 1];
+        k = args.set_indexes[4 * tuple_index + 2];
+        l = args.set_indexes[4 * tuple_index + 3];
+
+        n_i = (double) args.sample_set_sizes[i];
+        state_row = GET_2D_ROW(state, 3, i);
+        w_AB_i = state_row[0];
+        w_Ab_i = state_row[1];
+        w_aB_i = state_row[2];
+        w_ab_i = n_i - (w_AB_i + w_Ab_i + w_aB_i);
+
+        n_j = (double) args.sample_set_sizes[j];
+        state_row = GET_2D_ROW(state, 3, j);
+        w_AB_j = state_row[0];
+        w_Ab_j = state_row[1];
+        w_aB_j = state_row[2];
+        w_ab_j = n_j - (w_AB_j + w_Ab_j + w_aB_j);
+
+        n_k = (double) args.sample_set_sizes[k];
+        state_row = GET_2D_ROW(state, 3, k);
+        w_AB_k = state_row[0];
+        w_Ab_k = state_row[1];
+        w_aB_k = state_row[2];
+        w_ab_k = n_k - (w_AB_k + w_Ab_k + w_aB_k);
+
+        n_l = (double) args.sample_set_sizes[l];
+        state_row = GET_2D_ROW(state, 3, l);
+        w_AB_l = state_row[0];
+        w_Ab_l = state_row[1];
+        w_aB_l = state_row[2];
+        w_ab_l = n_l - (w_AB_l + w_Ab_l + w_aB_l);
+
+        result[tuple_index] = (1 / (n_i * n_j * n_k * n_l))
+                              * ((((w_aB_i + w_ab_i) * (w_AB_j + w_Ab_j)
+                                      * (w_Ab_k + w_ab_k) * (w_AB_l + w_aB_l))
+                                     / 4.0)
+                                    + (((w_AB_i + w_Ab_i) * (w_aB_j + w_ab_j)
+                                           * (w_Ab_k + w_ab_k) * (w_AB_l + w_aB_l))
+                                          / 4.0)
+                                    + (((w_aB_i + w_ab_i) * (w_AB_j + w_Ab_j)
+                                           * (w_AB_k + w_aB_k) * (w_Ab_l + w_ab_l))
+                                          / 4.0)
+                                    + (((w_AB_i + w_Ab_i) * (w_aB_j + w_ab_j)
+                                           * (w_AB_k + w_aB_k) * (w_Ab_l + w_ab_l))
+                                          / 4.0));
+    }
+    return 0;
+}
+
+int
+tsk_treeseq_pi2_unbiased_ijkl(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, const double *row_positions, tsk_size_t num_cols,
+    const tsk_id_t *col_sites, const double *col_positions, tsk_flags_t options,
+    double *result)
+{
+    int ret = 0;
+    ret = check_sample_stat_inputs(num_sample_sets, 4, num_index_tuples, index_tuples);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsk_treeseq_two_locus_count_stat(self, num_sample_sets, sample_set_sizes,
+        sample_sets, num_index_tuples, index_tuples, pi2_unbiased_ijkl_summary_func,
+        norm_total_weighted, num_rows, row_sites, row_positions, num_cols, col_sites,
+        col_positions, options, result);
 out:
     return ret;
 }

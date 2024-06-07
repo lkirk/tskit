@@ -1145,6 +1145,12 @@ int tsk_treeseq_r2_ij(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_id_t *row_sites, const double *row_positions, tsk_size_t num_cols,
     const tsk_id_t *col_sites, const double *col_positions, tsk_flags_t options,
     double *result);
+int tsk_treeseq_D2_ij_unbiased(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, const double *row_positions, tsk_size_t num_cols,
+    const tsk_id_t *col_sites, const double *col_positions, tsk_flags_t options,
+    double *result);
 
 /* Three way sample set stats */
 int tsk_treeseq_Y3(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
@@ -1155,12 +1161,36 @@ int tsk_treeseq_f3(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
     tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, tsk_size_t num_windows,
     const double *windows, tsk_flags_t options, double *result);
+int tsk_treeseq_Dz_ijk(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, const double *row_positions, tsk_size_t num_cols,
+    const tsk_id_t *col_sites, const double *col_positions, tsk_flags_t options,
+    double *result);
+int tsk_treeseq_Dz_unbiased_ijk(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, const double *row_positions, tsk_size_t num_cols,
+    const tsk_id_t *col_sites, const double *col_positions, tsk_flags_t options,
+    double *result);
 
 /* Four way sample set stats */
 int tsk_treeseq_f4(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
     tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, tsk_size_t num_windows,
     const double *windows, tsk_flags_t options, double *result);
+int tsk_treeseq_pi2_ijkl(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, const double *row_positions, tsk_size_t num_cols,
+    const tsk_id_t *col_sites, const double *col_positions, tsk_flags_t options,
+    double *result);
+int tsk_treeseq_pi2_unbiased_ijkl(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, const double *row_positions, tsk_size_t num_cols,
+    const tsk_id_t *col_sites, const double *col_positions, tsk_flags_t options,
+    double *result);
 
 int tsk_treeseq_divergence_matrix(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
