@@ -647,8 +647,7 @@ def two_branch_count_stat(
     and removals. We bifurcate the tree with a given branch on each locus and
     intersect the samples under each branch to produce haplotype counts. It
     is possible to subset the output matrix with genomic positions. Positions
-    lying on the same tree will receive the same LD value in the output tree.
-
+    lying on the same tree will receive the same LD value in the output matrix.
 
     :param ts: Tree sequence to gather data from.
     :param func: Function used to compute each two-locus statistic.
@@ -802,7 +801,7 @@ def two_locus_count_stat(
 
     if mode == "site":
         if positions is not None:
-            raise ValueError("Cannot specify positions in site mode (yet)")
+            raise ValueError("Cannot specify positions in site mode")
         if sites is None:
             row_sites = np.arange(ts.num_sites, dtype=np.int32)
             col_sites = np.arange(ts.num_sites, dtype=np.int32)
