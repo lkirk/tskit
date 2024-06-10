@@ -1520,12 +1520,7 @@ class TreeState:
         old_right = self.pos.interval.right
         self.pos.seek_forward(index)
         left = self.pos.interval.left
-        for j in range(self.pos.out_range.start, self.pos.out_range.stop):
-            e = self.pos.out_range.order[j]
-            e_left = self.pos.ts.edges_left[e]
-            # skip over edges that are not in the current tree
-            if e_left < old_right:
-                edges_out.append(e)
+        # since we're starting from an uninitialized tree, we only add edges
         for j in range(self.pos.in_range.start, self.pos.in_range.stop):
             e = self.pos.in_range.order[j]
             # skip over edges that are not in the current tree
