@@ -9569,6 +9569,7 @@ class TreeSequence:
             "D2": self._ll_tree_sequence.D2_ij_matrix,
             "D2_unbiased": self._ll_tree_sequence.D2_ij_unbiased_matrix,
             "r2": self._ll_tree_sequence.r2_ij_matrix,
+            "pi2_unbiased": self._ll_tree_sequence.pi2_unbiased_ij_matrix,
         }
 
         if stat.endswith("_unbiased"):

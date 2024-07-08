@@ -10374,6 +10374,13 @@ TreeSequence_pi2_ijkl_matrix(TreeSequence *self, PyObject *args, PyObject *kwds)
 }
 
 static PyObject *
+TreeSequence_pi2_unbiased_ij_matrix(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_matrix(
+        self, args, kwds, 2, tsk_treeseq_pi2_ij_unbiased);
+}
+
+static PyObject *
 TreeSequence_pi2_unbiased_ijkl_matrix(TreeSequence *self, PyObject *args, PyObject *kwds)
 {
     return TreeSequence_k_way_ld_matrix(
@@ -11178,6 +11185,10 @@ static PyMethodDef TreeSequence_methods[] = {
         .ml_doc = "Computes the four-way pi2 matrix." },
     { .ml_name = "pi2_unbiased_ijkl_matrix",
         .ml_meth = (PyCFunction) TreeSequence_pi2_unbiased_ijkl_matrix,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the four-way unbiased pi2 matrix." },
+    { .ml_name = "pi2_unbiased_ij_matrix",
+        .ml_meth = (PyCFunction) TreeSequence_pi2_unbiased_ij_matrix,
         .ml_flags = METH_VARARGS | METH_KEYWORDS,
         .ml_doc = "Computes the four-way unbiased pi2 matrix." },
     { NULL } /* Sentinel */

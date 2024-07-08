@@ -4918,6 +4918,93 @@ out:
     return ret;
 }
 
+static int
+pi2_unbiased_ij_summary_func(tsk_size_t TSK_UNUSED(state_dim), const double *state,
+    tsk_size_t result_dim, double *result, void *params)
+{
+    sample_count_stat_params_t args = *(sample_count_stat_params_t *) params;
+    const double *state_row;
+    tsk_size_t k;
+    tsk_id_t i, j;
+    double n_i, n_j;
+    double w_AB_i, w_Ab_i, w_aB_i, w_ab_i;
+    double w_AB_j, w_Ab_j, w_aB_j, w_ab_j;
+
+    for (k = 0; k < result_dim; k++) {
+        i = args.set_indexes[2 * k];
+        j = args.set_indexes[2 * k + 1];
+
+        n_i = (double) args.sample_set_sizes[i];
+        state_row = GET_2D_ROW(state, 3, i);
+        w_AB_i = state_row[0];
+        w_Ab_i = state_row[1];
+        w_aB_i = state_row[2];
+        w_ab_i = n_i - (w_AB_i + w_Ab_i + w_aB_i);
+
+        n_j = (double) args.sample_set_sizes[j];
+        state_row = GET_2D_ROW(state, 3, j);
+        w_AB_j = state_row[0];
+        w_Ab_j = state_row[1];
+        w_aB_j = state_row[2];
+        w_ab_j = n_j - (w_AB_j + w_Ab_j + w_aB_j);
+
+        result[k] = ((((w_Ab_i + w_ab_i) * (w_aB_i + w_ab_i) * (w_AB_j + w_Ab_j)
+                          * (w_AB_j + w_aB_j))
+                            / 4.0
+                        + ((w_AB_i + w_aB_i) * (w_aB_i + w_ab_i) * (w_AB_j + w_Ab_j)
+                              * (w_Ab_j + w_ab_j))
+                              / 4.0
+                        + ((w_AB_i + w_Ab_i) * (w_Ab_i + w_ab_i) * (w_AB_j + w_aB_j)
+                              * (w_aB_j + w_ab_j))
+                              / 4.0
+                        + ((w_AB_i + w_Ab_i) * (w_AB_i + w_aB_i) * (w_Ab_j + w_ab_j)
+                              * (w_aB_j + w_ab_j))
+                              / 4.0
+                        + (-(w_Ab_i * w_aB_i * w_AB_j) + w_ab_i * w_AB_j
+                              - w_Ab_i * w_ab_i * w_AB_j - w_aB_i * w_ab_i * w_AB_j
+                              - (w_ab_i * w_ab_i) * w_AB_j - w_ab_i * (w_AB_j * w_AB_j)
+                              + w_aB_i * w_Ab_j - w_AB_i * w_aB_i * w_Ab_j
+                              - (w_aB_i * w_aB_i) * w_Ab_j - w_AB_i * w_ab_i * w_Ab_j
+                              - w_aB_i * w_ab_i * w_Ab_j - w_aB_i * w_AB_j * w_Ab_j
+                              - w_ab_i * w_AB_j * w_Ab_j - w_aB_i * (w_Ab_j * w_Ab_j)
+                              + w_Ab_i * w_aB_j - w_AB_i * w_Ab_i * w_aB_j
+                              - (w_Ab_i * w_Ab_i) * w_aB_j - w_AB_i * w_ab_i * w_aB_j
+                              - w_Ab_i * w_ab_i * w_aB_j - w_Ab_i * w_AB_j * w_aB_j
+                              - w_ab_i * w_AB_j * w_aB_j - w_AB_i * w_Ab_j * w_aB_j
+                              - w_ab_i * w_Ab_j * w_aB_j - w_Ab_i * (w_aB_j * w_aB_j)
+                              + w_AB_i * w_ab_j - (w_AB_i * w_AB_i) * w_ab_j
+                              - w_AB_i * w_Ab_i * w_ab_j - w_AB_i * w_aB_i * w_ab_j
+                              - w_Ab_i * w_aB_i * w_ab_j - w_Ab_i * w_AB_j * w_ab_j
+                              - w_aB_i * w_AB_j * w_ab_j - w_AB_i * w_Ab_j * w_ab_j
+                              - w_aB_i * w_Ab_j * w_ab_j - w_AB_i * w_aB_j * w_ab_j
+                              - w_Ab_i * w_aB_j * w_ab_j - w_AB_i * w_ab_j * w_ab_j)
+                              / 4.0))
+                    / n_i / (n_i - 1) / n_j / (n_j - 1);
+    }
+    return 0;
+}
+
+int
+tsk_treeseq_pi2_ij_unbiased(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, tsk_size_t num_rows,
+    const tsk_id_t *row_sites, const double *row_positions, tsk_size_t num_cols,
+    const tsk_id_t *col_sites, const double *col_positions, tsk_flags_t options,
+    double *result)
+{
+    int ret = 0;
+    ret = check_sample_stat_inputs(num_sample_sets, 2, num_index_tuples, index_tuples);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsk_treeseq_two_locus_count_stat(self, num_sample_sets, sample_set_sizes,
+        sample_sets, num_index_tuples, index_tuples, pi2_unbiased_ij_summary_func,
+        norm_total_weighted, num_rows, row_sites, row_positions, num_cols, col_sites,
+        col_positions, options, result);
+out:
+    return ret;
+}
+
 /***********************************
  * Three way stats
  ***********************************/
