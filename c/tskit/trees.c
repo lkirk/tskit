@@ -2541,11 +2541,18 @@ tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
     if (ret != 0) {
         goto out;
     }
+    /* for (tsk_size_t i = 0; i < n_sites; i++) { */
+    /*     printf("%lu\t%lu\t%lu\n", i, num_alleles[i], site_offsets[i]); */
+    /* } */
+    /* for (tsk_size_t i = 0; i < n_alleles; i++) { */
+    /*     printf("%lu\t%u\n", i, allele_samples.data[i]); */
+    /* } */
 
     if (options & TSK_STAT_POLARISED) {
         polarised = true;
     }
 
+    /* const double *restrict site_position = self->tables->sites.position; */
     // For each row/column pair, fill in the sample set in the result matrix.
     for (r = 0; r < n_rows; r++) {
         result_row = GET_2D_ROW(result, result_row_len, r);
@@ -2556,6 +2563,9 @@ tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
                 num_alleles[row_idx[r]], num_alleles[col_idx[c]], num_samples, state_dim,
                 sample_sets, result_dim, f, f_params, norm_f, polarised,
                 &(result_row[c * result_dim]));
+            /* printf("%lu\t%lu\t%lu\t%lu\t%f\t%f\t%f\n", r, c, site_offsets[r], */
+            /*     site_offsets[c], site_position[r], site_position[c], */
+            /*     result_row[c * result_dim]); */
             if (ret != 0) {
                 goto out;
             }
@@ -3268,6 +3278,197 @@ tsk_treeseq_two_locus_count_stat(const tsk_treeseq_t *self, tsk_size_t num_sampl
             col_positions, options, result);
     } else {
         ret = TSK_ERR_UNSUPPORTED_STAT_MODE;
+    }
+
+out:
+    tsk_bit_array_free(&sample_sets_bits);
+    return ret;
+}
+
+static int
+tsk_treeseq_two_site_decay_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
+    const tsk_bit_array_t *sample_sets, tsk_size_t result_dim, general_stat_func_t *f,
+    sample_count_stat_params_t *f_params, norm_func_t *norm_f, const double *bins,
+    tsk_size_t num_bins, double max_dist, tsk_flags_t options, double *result)
+{
+    int ret = 0;
+    tsk_bit_array_t allele_samples, i_state, j_state;
+    bool polarised = false;
+    tsk_id_t *sites;
+    tsk_size_t i, j, k, n_alleles, n_sites;
+    double *result_row = NULL;
+    tsk_size_t *num_alleles = NULL, *site_offsets = NULL;
+    const tsk_size_t num_samples = self->num_samples;
+    const double *restrict site_position = self->tables->sites.position;
+
+    tsk_memset(&allele_samples, 0, sizeof(allele_samples));
+
+    n_sites = self->tables->sites.num_rows;
+    sites = tsk_malloc(n_sites * sizeof(*sites));
+    if (sites == NULL) {
+        ret = TSK_ERR_NO_MEMORY;
+        goto out;
+    }
+    for (i = 0; i < n_sites; i++) {
+        sites[i] = (tsk_id_t) i;
+    }
+
+    // We rely on n_sites to allocate these arrays, they're initialized to NULL for safe
+    // deallocation if the previous allocation fails
+    num_alleles = tsk_malloc(n_sites * sizeof(*num_alleles));
+    site_offsets = tsk_malloc(n_sites * sizeof(*site_offsets));
+    if (num_alleles == NULL || site_offsets == NULL) {
+        ret = TSK_ERR_NO_MEMORY;
+        goto out;
+    }
+
+    n_alleles = 0;
+    for (i = 0; i < n_sites; i++) {
+        site_offsets[i] = n_alleles;
+        n_alleles += self->site_mutations_length[sites[i]] + 1;
+    }
+    ret = tsk_bit_array_init(&allele_samples, num_samples, n_alleles);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = get_mutation_samples(self, sites, n_sites, num_alleles, &allele_samples);
+    if (ret != 0) {
+        goto out;
+    }
+    /* for (i = 0; i < n_sites; i++) { */
+    /*     printf("%lu\t%lu\t%lu\n", i, num_alleles[i], site_offsets[i]); */
+    /* } */
+    /* for (i = 0; i < n_alleles; i++) { */
+    /*     printf("%lu\t%u\n", i, allele_samples.data[i]); */
+    /* } */
+
+    if (options & TSK_STAT_POLARISED) {
+        polarised = true;
+    }
+
+    /* double *bin_dists; */
+    /* bin_dists = tsk_calloc(sizeof(*bin_dists), (num_bins * (num_bins + 1)) / 2); */
+    /* for (i = 0; i < num_bins; i++) { */
+    /*     for (j = 0; j < num_bins; j++) { */
+    /*         bin_dists[(i * (i + 1)) / 2 + j] = site_position[i] - site_position[j]; */
+    /*     } */
+    /* } */
+
+    double *result_tmp = tsk_calloc(sizeof(*result_tmp), result_dim);
+    tsk_size_t *bincount = tsk_calloc(sizeof(*bincount), num_bins * result_dim);
+
+    double dist;
+    tsk_size_t bin;
+    tsk_size_t *bincount_row;
+    for (i = 0; i < n_sites; i++) {
+        for (j = i + 1; j < n_sites; j++) {
+            /* dist = bin_dists[(bin * (bin + 1)) / 2 + bin]; */
+            dist = site_position[j] - site_position[i];
+            if (dist > max_dist) {
+                break;
+            }
+            bin = tsk_search_sorted(bins + 1, num_bins - 1, dist);
+            tsk_bit_array_get_row(&allele_samples, site_offsets[i], &i_state);
+            tsk_bit_array_get_row(&allele_samples, site_offsets[j], &j_state);
+            ret = compute_general_two_site_stat_result(&i_state, &j_state,
+                num_alleles[i], num_alleles[j], num_samples, state_dim, sample_sets,
+                result_dim, f, f_params, norm_f, polarised, result_tmp);
+            /* printf("%lu\t%lu\t%lu\t%lu\t%f\t%f\t%f\n", i, j, site_offsets[i], */
+            /*     site_offsets[j], site_position[i], site_position[j], result_tmp[0]);
+             */
+            if (ret != 0) {
+                goto out;
+            }
+            result_row = GET_2D_ROW(result, result_dim, bin);
+            bincount_row = GET_2D_ROW(bincount, result_dim, bin);
+            for (k = 0; k < result_dim; k++) {
+                /* printf( */
+                /*     "%lu\t%lu\t%f\t%.*e\n", i, j, bins[bin], DECIMAL_DIG,
+                 * result_tmp[k]); */
+                if (tsk_isnan(result_tmp[k])) {
+                    continue;
+                }
+                result_row[k] += result_tmp[k];
+                bincount_row[k] += 1;
+            }
+            tsk_memset(result_tmp, 0, sizeof(*result_tmp) * result_dim);
+        }
+    }
+    for (i = 0; i < num_bins; i++) {
+        result_row = GET_2D_ROW(result, result_dim, i);
+        bincount_row = GET_2D_ROW(bincount, result_dim, i);
+        for (k = 0; k < result_dim; k++) {
+            /* printf("%f\t%f\t%lu\n", bins[i], result_row[k], bincount_row[k]); */
+            result_row[k] /= (double) bincount_row[k];
+        }
+    }
+
+out:
+    tsk_safe_free(sites);
+    tsk_safe_free(bincount);
+    tsk_safe_free(result_tmp);
+    tsk_safe_free(num_alleles);
+    tsk_safe_free(site_offsets);
+    tsk_bit_array_free(&allele_samples);
+    return ret;
+}
+
+int
+tsk_treeseq_two_locus_decay_stat(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t result_dim, const tsk_id_t *set_indexes, general_stat_func_t *f,
+    norm_func_t *norm_f, const double *bins, tsk_size_t num_bins, double max_dist,
+    tsk_flags_t options, double *result)
+{
+    int ret = 0;
+    tsk_bit_array_t sample_sets_bits;
+    bool stat_site = !!(options & TSK_STAT_SITE);
+    bool stat_branch = !!(options & TSK_STAT_BRANCH);
+    // double default_windows[] = { 0, self->tables->sequence_length };
+    tsk_size_t state_dim = num_sample_sets;
+    sample_count_stat_params_t f_params = { .sample_sets = sample_sets,
+        .num_sample_sets = num_sample_sets,
+        .sample_set_sizes = sample_set_sizes,
+        .set_indexes = set_indexes };
+
+    tsk_memset(&sample_sets_bits, 0, sizeof(sample_sets_bits));
+
+    // If no mode is specified, we default to site mode
+    if (!(stat_site || stat_branch)) {
+        stat_site = true;
+    }
+    // It's an error to specify more than one mode
+    if (stat_site + stat_branch > 1) {
+        ret = TSK_ERR_MULTIPLE_STAT_MODES;
+        goto out;
+    }
+    ret = tsk_treeseq_check_sample_sets(
+        self, num_sample_sets, sample_set_sizes, sample_sets);
+    if (ret != 0) {
+        goto out;
+    }
+    if (result_dim < 1) {
+        ret = TSK_ERR_BAD_RESULT_DIMS;
+        goto out;
+    }
+    if (state_dim < 1) {
+        ret = TSK_ERR_BAD_STATE_DIMS;
+    };
+    ret = sample_sets_to_bit_array(
+        self, sample_set_sizes, sample_sets, num_sample_sets, &sample_sets_bits);
+    if (ret != 0) {
+        goto out;
+    }
+
+    if (stat_site) {
+        ret = tsk_treeseq_two_site_decay_stat(self, state_dim, &sample_sets_bits,
+            result_dim, f, &f_params, norm_f, bins, num_bins, max_dist, options, result);
+    } else if (stat_branch) {
+        ret = TSK_ERR_UNSUPPORTED_STAT_MODE;
+        goto out;
+    } else {
+        ret = TSK_ERR_UNSUPPORTED_STAT_MODE;
+        goto out;
     }
 
 out:
