@@ -2519,8 +2519,8 @@ tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
     get_site_row_col_indices(
         n_rows, row_sites, n_cols, col_sites, sites, &n_sites, row_idx, col_idx);
 
-    // We rely on n_sites to allocate these arrays, they're initialized to NULL for safe
-    // deallocation if the previous allocation fails
+    // We rely on n_sites to allocate these arrays, these arrays are initialized
+    // to NULL for safe deallocation if the previous allocation fails
     num_alleles = tsk_malloc(n_sites * sizeof(*num_alleles));
     site_offsets = tsk_malloc(n_sites * sizeof(*site_offsets));
     if (num_alleles == NULL || site_offsets == NULL) {
@@ -2541,18 +2541,11 @@ tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
     if (ret != 0) {
         goto out;
     }
-    /* for (tsk_size_t i = 0; i < n_sites; i++) { */
-    /*     printf("%lu\t%lu\t%lu\n", i, num_alleles[i], site_offsets[i]); */
-    /* } */
-    /* for (tsk_size_t i = 0; i < n_alleles; i++) { */
-    /*     printf("%lu\t%u\n", i, allele_samples.data[i]); */
-    /* } */
 
     if (options & TSK_STAT_POLARISED) {
         polarised = true;
     }
 
-    /* const double *restrict site_position = self->tables->sites.position; */
     // For each row/column pair, fill in the sample set in the result matrix.
     for (r = 0; r < n_rows; r++) {
         result_row = GET_2D_ROW(result, result_row_len, r);
@@ -2563,9 +2556,6 @@ tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
                 num_alleles[row_idx[r]], num_alleles[col_idx[c]], num_samples, state_dim,
                 sample_sets, result_dim, f, f_params, norm_f, polarised,
                 &(result_row[c * result_dim]));
-            /* printf("%lu\t%lu\t%lu\t%lu\t%f\t%f\t%f\n", r, c, site_offsets[r], */
-            /*     site_offsets[c], site_position[r], site_position[c], */
-            /*     result_row[c * result_dim]); */
             if (ret != 0) {
                 goto out;
             }
@@ -3295,9 +3285,9 @@ tsk_treeseq_two_site_decay_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
     tsk_bit_array_t allele_samples, i_state, j_state;
     bool polarised = false;
     tsk_id_t *sites;
-    tsk_size_t i, j, k, n_alleles, n_sites;
-    double *result_row = NULL;
-    tsk_size_t *num_alleles = NULL, *site_offsets = NULL;
+    tsk_size_t i, j, k, bin, n_alleles, n_sites, *bincount_row;
+    double dist, *result_row, *result_tmp = NULL;
+    tsk_size_t *num_alleles = NULL, *site_offsets = NULL, *bincount = NULL;
     const tsk_size_t num_samples = self->num_samples;
     const double *restrict site_position = self->tables->sites.position;
 
@@ -3313,11 +3303,14 @@ tsk_treeseq_two_site_decay_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
         sites[i] = (tsk_id_t) i;
     }
 
-    // We rely on n_sites to allocate these arrays, they're initialized to NULL for safe
-    // deallocation if the previous allocation fails
+    // We rely on n_sites to allocate these arrays, these arrays are initialized
+    // to NULL for safe deallocation if the previous allocation fails
     num_alleles = tsk_malloc(n_sites * sizeof(*num_alleles));
     site_offsets = tsk_malloc(n_sites * sizeof(*site_offsets));
-    if (num_alleles == NULL || site_offsets == NULL) {
+    result_tmp = tsk_calloc(sizeof(*result_tmp), result_dim);
+    bincount = tsk_calloc(sizeof(*bincount), num_bins * result_dim);
+    if (num_alleles == NULL || site_offsets == NULL || bincount == NULL
+        || result_tmp == NULL) {
         ret = TSK_ERR_NO_MEMORY;
         goto out;
     }
@@ -3335,34 +3328,13 @@ tsk_treeseq_two_site_decay_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
     if (ret != 0) {
         goto out;
     }
-    /* for (i = 0; i < n_sites; i++) { */
-    /*     printf("%lu\t%lu\t%lu\n", i, num_alleles[i], site_offsets[i]); */
-    /* } */
-    /* for (i = 0; i < n_alleles; i++) { */
-    /*     printf("%lu\t%u\n", i, allele_samples.data[i]); */
-    /* } */
 
     if (options & TSK_STAT_POLARISED) {
         polarised = true;
     }
 
-    /* double *bin_dists; */
-    /* bin_dists = tsk_calloc(sizeof(*bin_dists), (num_bins * (num_bins + 1)) / 2); */
-    /* for (i = 0; i < num_bins; i++) { */
-    /*     for (j = 0; j < num_bins; j++) { */
-    /*         bin_dists[(i * (i + 1)) / 2 + j] = site_position[i] - site_position[j]; */
-    /*     } */
-    /* } */
-
-    double *result_tmp = tsk_calloc(sizeof(*result_tmp), result_dim);
-    tsk_size_t *bincount = tsk_calloc(sizeof(*bincount), num_bins * result_dim);
-
-    double dist;
-    tsk_size_t bin;
-    tsk_size_t *bincount_row;
     for (i = 0; i < n_sites; i++) {
         for (j = i + 1; j < n_sites; j++) {
-            /* dist = bin_dists[(bin * (bin + 1)) / 2 + bin]; */
             dist = site_position[j] - site_position[i];
             if (dist > max_dist) {
                 break;
@@ -3373,18 +3345,12 @@ tsk_treeseq_two_site_decay_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
             ret = compute_general_two_site_stat_result(&i_state, &j_state,
                 num_alleles[i], num_alleles[j], num_samples, state_dim, sample_sets,
                 result_dim, f, f_params, norm_f, polarised, result_tmp);
-            /* printf("%lu\t%lu\t%lu\t%lu\t%f\t%f\t%f\n", i, j, site_offsets[i], */
-            /*     site_offsets[j], site_position[i], site_position[j], result_tmp[0]);
-             */
             if (ret != 0) {
                 goto out;
             }
             result_row = GET_2D_ROW(result, result_dim, bin);
             bincount_row = GET_2D_ROW(bincount, result_dim, bin);
             for (k = 0; k < result_dim; k++) {
-                /* printf( */
-                /*     "%lu\t%lu\t%f\t%.*e\n", i, j, bins[bin], DECIMAL_DIG,
-                 * result_tmp[k]); */
                 if (tsk_isnan(result_tmp[k])) {
                     continue;
                 }
@@ -3398,7 +3364,6 @@ tsk_treeseq_two_site_decay_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
         result_row = GET_2D_ROW(result, result_dim, i);
         bincount_row = GET_2D_ROW(bincount, result_dim, i);
         for (k = 0; k < result_dim; k++) {
-            /* printf("%f\t%f\t%lu\n", bins[i], result_row[k], bincount_row[k]); */
             result_row[k] /= (double) bincount_row[k];
         }
     }
