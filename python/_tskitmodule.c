@@ -977,6 +977,12 @@ bool_array_converter(PyObject *py_obj, PyArrayObject **array_out)
     return array_converter(NPY_BOOL, py_obj, array_out);
 }
 
+static int
+float64_array_converter(PyObject *py_obj, PyArrayObject **array_out)
+{
+    return array_converter(NPY_FLOAT64, py_obj, array_out);
+}
+
 /* Note: it doesn't seem to be possible to cast pointers to the actual
  * table functions to this type because the first argument must be a
  * void *, so the simplest option is to put in a small shim that
@@ -10088,7 +10094,7 @@ TreeSequence_ld_matrix(TreeSequence *self, PyObject *args, PyObject *kwds,
     if (TreeSequence_check_state(self) != 0) {
         goto out;
     }
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOOOOOs", kwlist, &sample_set_sizes,
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOOOOO|s", kwlist, &sample_set_sizes,
             &sample_sets, &row_sites, &col_sites, &row_positions, &col_positions,
             &mode)) {
         goto out;
@@ -10220,6 +10226,131 @@ static PyObject *
 TreeSequence_Dz_unbiased_matrix(TreeSequence *self, PyObject *args, PyObject *kwds)
 {
     return TreeSequence_ld_matrix(self, args, kwds, tsk_treeseq_Dz_unbiased);
+}
+
+static PyObject *
+TreeSequence_ld_decay(TreeSequence *self, PyObject *args, PyObject *kwds,
+    two_locus_decay_stat_method *method)
+{
+    PyObject *ret = NULL;
+    static char *kwlist[]
+        = { "sample_set_sizes", "sample_sets", "bins", "max_dist", "mode", NULL };
+
+    PyObject *sample_sets = NULL, *sample_set_sizes = NULL;
+    PyArrayObject *sample_sets_array = NULL, *sample_set_sizes_array = NULL,
+                  *bins = NULL, *result_matrix = NULL;
+    double max_dist;
+    npy_intp result_dim[2];
+    char *mode = NULL;
+    tsk_size_t num_sample_sets;
+    tsk_flags_t options = 0;
+    int err;
+
+    if (TreeSequence_check_state(self) != 0) {
+        goto out;
+    }
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOO&d|s", kwlist, &sample_set_sizes,
+            &sample_sets, &float64_array_converter, &bins, &max_dist, &mode)) {
+        goto out;
+    }
+    if (parse_stats_mode(mode, &options) != 0) {
+        goto out;
+    }
+    if (parse_sample_sets(sample_set_sizes, &sample_set_sizes_array, sample_sets,
+            &sample_sets_array, &num_sample_sets)
+        != 0) {
+        goto out;
+    }
+
+    result_dim[0] = PyArray_DIM(bins, 0) - 1;
+    result_dim[1] = num_sample_sets;
+    result_matrix = (PyArrayObject *) PyArray_ZEROS(2, result_dim, NPY_FLOAT64, 0);
+    if (result_matrix == NULL) {
+        PyErr_NoMemory();
+        goto out;
+    }
+
+    // clang-format off
+    Py_BEGIN_ALLOW_THREADS
+    err = method(self->tree_sequence, num_sample_sets,
+        PyArray_DATA(sample_set_sizes_array), PyArray_DATA(sample_sets_array),
+		 PyArray_DATA(bins), result_dim[0], max_dist, options, PyArray_DATA(result_matrix));
+    Py_END_ALLOW_THREADS
+        // clang-format on
+
+        if (err != 0)
+    {
+        handle_library_error(err);
+        goto out;
+    }
+    ret = (PyObject *) result_matrix;
+    result_matrix = NULL;
+out:
+    Py_XDECREF(bins);
+    Py_XDECREF(sample_sets_array);
+    Py_XDECREF(sample_set_sizes_array);
+    Py_XDECREF(result_matrix);
+    return ret;
+}
+
+static PyObject *
+TreeSequence_D_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_ld_decay(self, args, kwds, tsk_treeseq_D_decay);
+}
+
+static PyObject *
+TreeSequence_D2_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_ld_decay(self, args, kwds, tsk_treeseq_D2_decay);
+}
+
+static PyObject *
+TreeSequence_r2_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_ld_decay(self, args, kwds, tsk_treeseq_r2_decay);
+}
+
+static PyObject *
+TreeSequence_D_prime_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_ld_decay(self, args, kwds, tsk_treeseq_D_prime_decay);
+}
+
+static PyObject *
+TreeSequence_r_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_ld_decay(self, args, kwds, tsk_treeseq_r_decay);
+}
+
+static PyObject *
+TreeSequence_Dz_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_ld_decay(self, args, kwds, tsk_treeseq_Dz_decay);
+}
+
+static PyObject *
+TreeSequence_pi2_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_ld_decay(self, args, kwds, tsk_treeseq_pi2_decay);
+}
+
+static PyObject *
+TreeSequence_pi2_unbiased_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_ld_decay(self, args, kwds, tsk_treeseq_pi2_unbiased_decay);
+}
+
+static PyObject *
+TreeSequence_D2_unbiased_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_ld_decay(self, args, kwds, tsk_treeseq_D2_unbiased_decay);
+}
+
+static PyObject *
+TreeSequence_Dz_unbiased_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_ld_decay(self, args, kwds, tsk_treeseq_Dz_unbiased_decay);
 }
 
 static PyObject *
@@ -10385,6 +10516,136 @@ TreeSequence_pi2_unbiased_ijkl_matrix(TreeSequence *self, PyObject *args, PyObje
 {
     return TreeSequence_k_way_ld_matrix(
         self, args, kwds, 4, tsk_treeseq_pi2_unbiased_ijkl);
+}
+
+static PyObject *
+TreeSequence_k_way_ld_decay(TreeSequence *self, PyObject *args, PyObject *kwds,
+    npy_intp tuple_size, k_way_two_locus_decay_stat_method *method)
+{
+    PyObject *ret = NULL;
+    static char *kwlist[] = { "sample_set_sizes", "sample_sets", "indexes", "bins",
+        "max_dist", "mode", NULL };
+
+    PyObject *sample_sets = NULL, *sample_set_sizes = NULL, *indexes = NULL;
+    PyArrayObject *sample_sets_array = NULL, *sample_set_sizes_array = NULL,
+                  *bins = NULL, *indexes_array = NULL, *result_matrix = NULL;
+    double max_dist;
+    npy_intp *shape, result_dim[2];
+    char *mode = NULL;
+    tsk_size_t num_sample_sets, num_set_index_tuples;
+    tsk_flags_t options = 0;
+    int err;
+
+    if (TreeSequence_check_state(self) != 0) {
+        goto out;
+    }
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOOO&d|s", kwlist, &sample_set_sizes,
+            &sample_sets, &indexes, &float64_array_converter, &bins, &max_dist, &mode)) {
+        goto out;
+    }
+    if (parse_stats_mode(mode, &options) != 0) {
+        goto out;
+    }
+    if (parse_sample_sets(sample_set_sizes, &sample_set_sizes_array, sample_sets,
+            &sample_sets_array, &num_sample_sets)
+        != 0) {
+        goto out;
+    }
+    indexes_array = (PyArrayObject *) PyArray_FROMANY(
+        indexes, NPY_INT32, 2, 2, NPY_ARRAY_IN_ARRAY);
+    if (indexes_array == NULL) {
+        goto out;
+    }
+    shape = PyArray_DIMS(indexes_array);
+    if (shape[0] < 1 || shape[1] != tuple_size) {
+        PyErr_Format(
+            PyExc_ValueError, "indexes must be a k x %d array.", (int) tuple_size);
+        goto out;
+    }
+    num_set_index_tuples = shape[0];
+
+    result_dim[0] = PyArray_DIM(bins, 0) - 1;
+    result_dim[1] = num_set_index_tuples;
+    result_matrix = (PyArrayObject *) PyArray_ZEROS(2, result_dim, NPY_FLOAT64, 0);
+    if (result_matrix == NULL) {
+        PyErr_NoMemory();
+        goto out;
+    }
+
+    // clang-format off
+    Py_BEGIN_ALLOW_THREADS
+    err = method(self->tree_sequence, num_sample_sets,
+		 PyArray_DATA(sample_set_sizes_array), PyArray_DATA(sample_sets_array), num_set_index_tuples, 
+		 PyArray_DATA(indexes_array), PyArray_DATA(bins), result_dim[0], max_dist, options, PyArray_DATA(result_matrix));
+    Py_END_ALLOW_THREADS
+        // clang-format on
+
+        if (err != 0)
+    {
+        handle_library_error(err);
+        goto out;
+    }
+    ret = (PyObject *) result_matrix;
+    result_matrix = NULL;
+out:
+    Py_XDECREF(bins);
+    Py_XDECREF(indexes_array);
+    Py_XDECREF(sample_sets_array);
+    Py_XDECREF(sample_set_sizes_array);
+    Py_XDECREF(result_matrix);
+    return ret;
+}
+
+static PyObject *
+TreeSequence_D2_ij_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_decay(self, args, kwds, 2, tsk_treeseq_D2_ij_decay);
+}
+
+static PyObject *
+TreeSequence_D2_ij_unbiased_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_decay(
+        self, args, kwds, 2, tsk_treeseq_D2_ij_unbiased_decay);
+}
+
+static PyObject *
+TreeSequence_r2_ij_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_decay(self, args, kwds, 2, tsk_treeseq_r2_ij_decay);
+}
+
+static PyObject *
+TreeSequence_Dz_ijk_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_decay(self, args, kwds, 3, tsk_treeseq_Dz_ijk_decay);
+}
+
+static PyObject *
+TreeSequence_Dz_unbiased_ijk_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_decay(
+        self, args, kwds, 3, tsk_treeseq_Dz_unbiased_ijk_decay);
+}
+
+static PyObject *
+TreeSequence_pi2_ijkl_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_decay(self, args, kwds, 4, tsk_treeseq_pi2_ijkl_decay);
+}
+
+static PyObject *
+TreeSequence_pi2_unbiased_ij_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_decay(
+        self, args, kwds, 2, tsk_treeseq_pi2_unbiased_ij_decay);
+}
+
+static PyObject *
+TreeSequence_pi2_unbiased_ijkl_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_decay(
+        self, args, kwds, 4, tsk_treeseq_pi2_unbiased_ijkl_decay);
 }
 
 static PyObject *
@@ -11159,6 +11420,46 @@ static PyMethodDef TreeSequence_methods[] = {
         .ml_meth = (PyCFunction) TreeSequence_pi2_unbiased_matrix,
         .ml_flags = METH_VARARGS | METH_KEYWORDS,
         .ml_doc = "Computes the unbiased pi2 matrix." },
+    { .ml_name = "D_decay",
+        .ml_meth = (PyCFunction) TreeSequence_D_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the D decay curve." },
+    { .ml_name = "D2_decay",
+        .ml_meth = (PyCFunction) TreeSequence_D2_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the D2 decay curve." },
+    { .ml_name = "r2_decay",
+        .ml_meth = (PyCFunction) TreeSequence_r2_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the r2 decay curve." },
+    { .ml_name = "D_prime_decay",
+        .ml_meth = (PyCFunction) TreeSequence_D_prime_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the D_prime decay curve." },
+    { .ml_name = "r_decay",
+        .ml_meth = (PyCFunction) TreeSequence_r_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the r decay curve." },
+    { .ml_name = "Dz_decay",
+        .ml_meth = (PyCFunction) TreeSequence_Dz_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the Dz decay curve." },
+    { .ml_name = "pi2_decay",
+        .ml_meth = (PyCFunction) TreeSequence_pi2_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the pi2 decay curve." },
+    { .ml_name = "D2_unbiased_decay",
+        .ml_meth = (PyCFunction) TreeSequence_D2_unbiased_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the unbiased D2 decay curve." },
+    { .ml_name = "Dz_unbiased_decay",
+        .ml_meth = (PyCFunction) TreeSequence_Dz_unbiased_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the unbiased Dz decay curve." },
+    { .ml_name = "pi2_unbiased_decay",
+        .ml_meth = (PyCFunction) TreeSequence_pi2_unbiased_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the unbiased pi2 decay curve." },
     { .ml_name = "D2_ij_matrix",
         .ml_meth = (PyCFunction) TreeSequence_D2_ij_matrix,
         .ml_flags = METH_VARARGS | METH_KEYWORDS,
@@ -11191,6 +11492,38 @@ static PyMethodDef TreeSequence_methods[] = {
         .ml_meth = (PyCFunction) TreeSequence_pi2_unbiased_ij_matrix,
         .ml_flags = METH_VARARGS | METH_KEYWORDS,
         .ml_doc = "Computes the four-way unbiased pi2 matrix." },
+    { .ml_name = "D2_ij_decay",
+        .ml_meth = (PyCFunction) TreeSequence_D2_ij_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the two-way D^2 decay curve." },
+    { .ml_name = "D2_ij_unbiased_decay",
+        .ml_meth = (PyCFunction) TreeSequence_D2_ij_unbiased_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the two-way unbiased D^2 decay curve." },
+    { .ml_name = "r2_ij_decay",
+        .ml_meth = (PyCFunction) TreeSequence_r2_ij_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the two-way r^2 decay curve." },
+    { .ml_name = "Dz_ijk_decay",
+        .ml_meth = (PyCFunction) TreeSequence_Dz_ijk_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the three-way Dz decay curve." },
+    { .ml_name = "Dz_unbiased_ijk_decay",
+        .ml_meth = (PyCFunction) TreeSequence_Dz_unbiased_ijk_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the three-way unbiased Dz decay curve." },
+    { .ml_name = "pi2_ijkl_decay",
+        .ml_meth = (PyCFunction) TreeSequence_pi2_ijkl_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the four-way pi2 decay curve." },
+    { .ml_name = "pi2_unbiased_ijkl_decay",
+        .ml_meth = (PyCFunction) TreeSequence_pi2_unbiased_ijkl_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the four-way unbiased pi2 decay curve." },
+    { .ml_name = "pi2_unbiased_ij_decay",
+        .ml_meth = (PyCFunction) TreeSequence_pi2_unbiased_ij_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the four-way unbiased pi2 decay curve." },
     { NULL } /* Sentinel */
 };
 

@@ -23,6 +23,7 @@
 """
 Module responsible for managing trees and tree sequences.
 """
+
 from __future__ import annotations
 
 import base64
@@ -7520,6 +7521,23 @@ class TreeSequence:
                 )
         return np.array(windows)
 
+    @staticmethod
+    def _try_drop_dimension(sample_sets):
+        # First try to convert to a 1D numpy array. If we succeed, then we strip off
+        # the corresponding dimension from the output.
+        drop_dimension = False
+        try:
+            sample_sets = np.array(sample_sets, dtype=np.uint64)
+        except ValueError:
+            pass
+        else:
+            # If we've successfully converted sample_sets to a 1D numpy array
+            # of integers then drop the dimension
+            if len(sample_sets.shape) == 1:
+                sample_sets = [sample_sets]
+                drop_dimension = True
+        return sample_sets, drop_dimension
+
     def __run_windowed_stat(self, windows, method, *args, **kwargs):
         strip_dim = windows is None
         windows = self.parse_windows(windows)
@@ -7540,20 +7558,7 @@ class TreeSequence:
         if sample_sets is None:
             sample_sets = self.samples()
 
-        # First try to convert to a 1D numpy array. If it is, then we strip off
-        # the corresponding dimension from the output.
-        drop_dimension = False
-        try:
-            sample_sets = np.array(sample_sets, dtype=np.uint64)
-        except ValueError:
-            pass
-        else:
-            # If we've successfully converted sample_sets to a 1D numpy array
-            # of integers then drop the dimension
-            if len(sample_sets.shape) == 1:
-                sample_sets = [sample_sets]
-                drop_dimension = True
-
+        sample_sets, drop_dimension = self._try_drop_dimension(sample_sets)
         sample_set_sizes = np.array(
             [len(sample_set) for sample_set in sample_sets], dtype=np.uint32
         )
@@ -7624,20 +7629,7 @@ class TreeSequence:
         row_sites, col_sites = self.parse_sites(sites)
         row_positions, col_positions = self.parse_positions(positions)
 
-        # First try to convert to a 1D numpy array. If we succeed, then we strip off
-        # the corresponding dimension from the output.
-        drop_dimension = False
-        try:
-            sample_sets = np.array(sample_sets, dtype=np.uint64)
-        except ValueError:
-            pass
-        else:
-            # If we've successfully converted sample_sets to a 1D numpy array
-            # of integers then drop the dimension
-            if len(sample_sets.shape) == 1:
-                sample_sets = [sample_sets]
-                drop_dimension = True
-
+        sample_sets, drop_dimension = self._try_drop_dimension(sample_sets)
         sample_set_sizes = np.array(
             [len(sample_set) for sample_set in sample_sets], dtype=np.uint32
         )
@@ -7718,6 +7710,84 @@ class TreeSequence:
             # Orient the data so that the first dimension is the sample set.
             # With this orientation, we get one LD matrix per sample set.
             result = result.swapaxes(0, 2).swapaxes(1, 2)
+        return result
+
+    def __two_locus_sample_set_decay_stat(
+        self,
+        ll_method,
+        sample_sets,
+        bins,
+        max_dist,
+        mode=None,
+    ):
+        if sample_sets is None:
+            sample_sets = self.samples()
+
+        sample_sets, drop_dimension = self._try_drop_dimension(sample_sets)
+        sample_set_sizes = np.array(
+            [len(sample_set) for sample_set in sample_sets], dtype=np.uint32
+        )
+        if np.any(sample_set_sizes == 0):
+            raise ValueError("Sample sets must contain at least one element")
+
+        flattened = util.safe_np_int_cast(np.hstack(sample_sets), np.int32)
+        result = ll_method(sample_set_sizes, flattened, bins, max_dist, mode)
+        if drop_dimension:
+            result = result.reshape(result.shape[0])
+        else:
+            # Orient the data so that the first dimension is the sample set.
+            result = result.swapaxes(0, 1)
+
+        return result
+
+    def __k_way_two_locus_sample_set_decay_stat(
+        self,
+        ll_method,
+        k,
+        sample_sets,
+        bins,
+        max_dist,
+        indexes=None,
+        mode=None,
+    ):
+        sample_set_sizes = np.array(
+            [len(sample_set) for sample_set in sample_sets], dtype=np.uint32
+        )
+        if np.any(sample_set_sizes == 0):
+            raise ValueError("Sample sets must contain at least one element")
+        flattened = util.safe_np_int_cast(np.hstack(sample_sets), np.int32)
+        # drop_based_on_index = False
+        if indexes is None:
+            # drop_based_on_index = True
+            if len(sample_sets) != k:
+                raise ValueError(
+                    "Must specify indexes if there are not exactly {} sample "
+                    "sets.".format(k)
+                )
+            indexes = np.arange(k, dtype=np.int32)
+        drop_dimension = False
+        indexes = util.safe_np_int_cast(indexes, np.int32)
+        if len(indexes.shape) == 1:
+            indexes = indexes.reshape((1, indexes.shape[0]))
+            drop_dimension = True
+        if len(indexes.shape) != 2 or indexes.shape[1] != k:
+            raise ValueError(
+                "Indexes must be convertable to a 2D numpy array with {} "
+                "columns".format(k)
+            )
+        result = ll_method(
+            sample_set_sizes,
+            flattened,
+            indexes,
+            bins,
+            max_dist,
+            mode,
+        )
+        if drop_dimension:
+            result = result.reshape(result.shape[0])
+        else:
+            # Orient the data so that the first dimension is the sample set.
+            result = result.swapaxes(0, 1)
         return result
 
     def __k_way_sample_set_stat(
@@ -9556,6 +9626,35 @@ class TreeSequence:
             mode=mode,
         )
 
+    def ld_decay(self, bins, max_dist, sample_sets=None, mode="site", stat="r2"):
+        stats = {
+            "D": self._ll_tree_sequence.D_decay,
+            "D2": self._ll_tree_sequence.D2_decay,
+            "r2": self._ll_tree_sequence.r2_decay,
+            "D_prime": self._ll_tree_sequence.D_prime_decay,
+            "r": self._ll_tree_sequence.r_decay,
+            "Dz": self._ll_tree_sequence.Dz_decay,
+            "pi2": self._ll_tree_sequence.pi2_decay,
+            "Dz_unbiased": self._ll_tree_sequence.Dz_unbiased_decay,
+            "D2_unbiased": self._ll_tree_sequence.D2_unbiased_decay,
+            "pi2_unbiased": self._ll_tree_sequence.pi2_unbiased_decay,
+        }
+
+        try:
+            two_locus_stat = stats[stat]
+        except KeyError:
+            raise ValueError(
+                f"Unknown two-locus statistic '{stat}', we support: {list(stats.keys())}"
+            )
+
+        return self.__two_locus_sample_set_decay_stat(
+            two_locus_stat,
+            sample_sets,
+            bins=bins,
+            max_dist=max_dist,
+            mode=mode,
+        )
+
     def ld_matrix_two_way(
         self,
         sample_sets,
@@ -9597,6 +9696,41 @@ class TreeSequence:
             mode=mode,
         )
 
+    def ld_decay_two_way(
+        self, sample_sets, bins, max_dist, indexes=None, mode="site", stat="r2"
+    ):
+        stats = {
+            "D2": self._ll_tree_sequence.D2_ij_decay,
+            "D2_unbiased": self._ll_tree_sequence.D2_ij_unbiased_decay,
+            "r2": self._ll_tree_sequence.r2_ij_decay,
+            "pi2_unbiased": self._ll_tree_sequence.pi2_unbiased_ij_decay,
+        }
+
+        if stat.endswith("_unbiased"):
+            for s1, s2 in itertools.combinations(sample_sets, 2):
+                if not set(s1).isdisjoint(s2):
+                    raise ValueError(
+                        "Unbiased stats require disjoint sample sets. "
+                        f"Sample sets are disjoint: {s1}, {s2}"
+                    )
+
+        try:
+            two_locus_stat = stats[stat]
+        except KeyError:
+            raise ValueError(
+                f"Unknown two-locus statistic '{stat}', we support: {list(stats.keys())}"
+            )
+
+        return self.__k_way_two_locus_sample_set_decay_stat(
+            two_locus_stat,
+            2,
+            sample_sets,
+            bins,
+            max_dist,
+            indexes=indexes,
+            mode=mode,
+        )
+
     def ld_matrix_three_way(
         self,
         sample_sets,
@@ -9630,6 +9764,41 @@ class TreeSequence:
             mode=mode,
         )
 
+    def ld_decay_three_way(
+        self, sample_sets, bins, max_dist, indexes=None, mode="site", stat="r2"
+    ):
+        if stat == "Dz_unbiased":
+            raise Exception("Dz_unbiased is untested")
+        stats = {
+            "Dz": self._ll_tree_sequence.Dz_ijk_decay,
+            "Dz_unbiased": self._ll_tree_sequence.Dz_unbiased_ijk_decay,
+        }
+
+        if stat.endswith("_unbiased"):
+            for s1, s2 in itertools.combinations(sample_sets, 2):
+                if not set(s1).isdisjoint(s2):
+                    raise ValueError(
+                        "Unbiased stats require disjoint sample sets. "
+                        f"Sample sets are disjoint: {s1}, {s2}"
+                    )
+
+        try:
+            two_locus_stat = stats[stat]
+        except KeyError:
+            raise ValueError(
+                f"Unknown two-locus statistic '{stat}', we support: {list(stats.keys())}"
+            )
+
+        return self.__k_way_two_locus_sample_set_decay_stat(
+            two_locus_stat,
+            3,
+            sample_sets,
+            bins,
+            max_dist,
+            indexes=indexes,
+            mode=mode,
+        )
+
     def ld_matrix_four_way(
         self,
         sample_sets,
@@ -9660,6 +9829,41 @@ class TreeSequence:
             indexes=indexes,
             sites=sites,
             positions=positions,
+            mode=mode,
+        )
+
+    def ld_decay_four_way(
+        self, sample_sets, bins, max_dist, indexes=None, mode="site", stat="r2"
+    ):
+        if stat == "pi2_unbiased":
+            raise Exception("pi2_unbiased is untested")
+        stats = {
+            "pi2": self._ll_tree_sequence.pi2_ijkl_decay,
+            "pi2_unbiased": self._ll_tree_sequence.pi2_unbiased_ijkl_decay,
+        }
+
+        if stat.endswith("_unbiased"):
+            for s1, s2 in itertools.combinations(sample_sets, 2):
+                if not set(s1).isdisjoint(s2):
+                    raise ValueError(
+                        "Unbiased stats require disjoint sample sets. "
+                        f"Sample sets are disjoint: {s1}, {s2}"
+                    )
+
+        try:
+            two_locus_stat = stats[stat]
+        except KeyError:
+            raise ValueError(
+                f"Unknown two-locus statistic '{stat}', we support: {list(stats.keys())}"
+            )
+
+        return self.__k_way_two_locus_sample_set_decay_stat(
+            two_locus_stat,
+            4,
+            sample_sets,
+            bins,
+            max_dist,
+            indexes=indexes,
             mode=mode,
         )
 
