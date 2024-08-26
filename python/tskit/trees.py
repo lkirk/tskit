@@ -9676,7 +9676,7 @@ class TreeSequence:
                 if not set(s1).isdisjoint(s2):
                     raise ValueError(
                         "Unbiased stats require disjoint sample sets. "
-                        f"Sample sets are disjoint: {s1}, {s2}"
+                        f"Sample sets are not disjoint: {s1}, {s2}"
                     )
 
         try:
