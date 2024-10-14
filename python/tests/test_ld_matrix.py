@@ -35,11 +35,12 @@ from typing import Generator
 from typing import List
 from typing import Tuple
 
+
 import msprime
 import numpy as np
 import pytest
-
 import tskit
+
 from tests import tsutil
 from tests.test_highlevel import get_example_tree_sequences
 
@@ -1813,7 +1814,7 @@ def compute_branch_stat2(
     updates = set()
 
     # Identify modified nodes
-    for e in r_state.edges_out:
+    for e in r_state.edges_out + r_state.edges_in:
         p = ts.edges_parent[e]
         c = ts.edges_child[e]
         # identify affected nodes above child
