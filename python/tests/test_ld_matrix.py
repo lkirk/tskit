@@ -35,11 +35,12 @@ from typing import Generator
 from typing import List
 from typing import Tuple
 
+
 import msprime
 import numpy as np
 import pytest
-
 import tskit
+
 from tests import tsutil
 from tests.test_highlevel import get_example_tree_sequences
 
@@ -132,15 +133,28 @@ class BitSet:
 
     def get_items(self: "BitSet", row: int) -> Generator[int, None, None]:
         """Get the items stored in the row of a bitset
+        Uses a de Bruijn sequence lookup table to determine the lowest bit set.
+        See the wikipedia article for more info: https://w.wiki/BYiF
 
         :param row: Row from the array to list from.
         :returns: A generator of integers stored in the array.
         """
+        lookup = [ 0, 1, 28, 2, 29, 14, 24, 3, 30, 22, 20, 15, 25, 17, 4, 8, 31, 27,
+                   13, 23, 21, 19, 16, 7, 26, 12, 18, 6, 11, 5, 10, 9 ]  # fmt:off
+        m = np.uint32(125613361)
         offset = row * self.row_len
         for i in range(self.row_len):
-            for item in range(self.CHUNK_SIZE):
-                if self.data[i + offset] & (self.DTYPE(1) << item):
-                    yield item + (i * self.CHUNK_SIZE)
+            v = self.data[i + offset]
+            if v == 0:
+                continue
+            else:
+                # v & -v operations rely on integer overflow
+                with np.errstate(over="ignore"):
+                    lsb = v & -v  # isolate the least significant bit
+                    while lsb:  # while there are bits remaining
+                        yield lookup[(lsb * m) >> 27] + (i * self.CHUNK_SIZE)
+                        v ^= lsb  # unset the lsb
+                        lsb = v & -v
 
     def contains(self: "BitSet", row: int, bit: int) -> bool:
         """Test if a bit is contained within a bit array row
@@ -684,13 +698,13 @@ def two_branch_count_stat(
         r_state = TreeState(ts, sample_sets, num_sample_sets, sample_index_map)
         l_state.advance(r + row_trees[0])
         # use null TreeState to advance l_state, conveniently we just zerod r_state
-        _, l_state = compute_branch_stat(
+        _, l_state = compute_branch_stat2(
             ts, func, stat, params, num_sample_sets, r_state, l_state
         )
         col = 0
         for c in range(col_trees[-1] + 1 - col_trees[0]):
             r_state.advance(c + col_trees[0])
-            stat, r_state = compute_branch_stat(
+            stat, r_state = compute_branch_stat2(
                 ts, func, stat, params, num_sample_sets, l_state, r_state
             )
             # Fill in repeated values for all sample sets
@@ -1755,6 +1769,115 @@ def compute_branch_stat(ts, stat_func, stat, params, state_dim, l_state, r_state
             in_parent = child_samples
             c = p
             p = r_state.parent[p]
+
+    return stat, r_state
+
+
+def compute_branch_stat_update2(
+    c,
+    A_state,
+    B_state,
+    state_dim,
+    sign,
+    stat_func,
+    num_samples,
+    result,
+    params,
+):
+    b_len = B_state.branch_len[c] * sign
+    if b_len == 0:
+        return result
+
+    AB_samples = BitSet(num_samples, 1)
+    weights = np.zeros((3, state_dim), dtype=np.int64)
+    result_tmp = np.zeros(state_dim, np.float64)
+
+    for n in np.where(A_state.branch_len > 0)[0]:
+        a_len = A_state.branch_len[n]
+        for k in range(state_dim):
+            row = (state_dim * n) + k
+            c_row = (state_dim * c) + k
+            # Samples under the modified edge and the current fixed tree node are AB
+            A_state.node_samples.intersect(row, B_state.node_samples, c_row, AB_samples)
+
+            w_AB = AB_samples.count(0)
+            w_A = A_state.node_samples.count(row)
+            w_B = B_state.node_samples.count(c_row)
+
+            weights[0, k] = w_AB
+            weights[1, k] = w_A - w_AB  # w_Ab
+            weights[2, k] = w_B - w_AB  # w_aB
+
+        stat_func(state_dim, weights, result_tmp, params)
+        for k in range(state_dim):
+            result[k] += result_tmp[k] * a_len * b_len
+
+
+def compute_branch_stat2(
+    ts: tskit.TreeSequence,
+    stat_func,
+    stat,
+    params,
+    state_dim,
+    l_state: TreeState,
+    r_state: TreeState,
+):
+    num_samples = ts.num_samples
+    time = ts.tables.nodes.time
+    updates = BitSet(ts.num_nodes, 1)
+
+    # Identify modified nodes
+    for e in r_state.edges_out + r_state.edges_in:
+        p = ts.edges_parent[e]
+        c = ts.edges_child[e]
+        # identify affected nodes above child
+        while p != tskit.NULL:
+            updates.add(0, c)
+            c = p
+            p = r_state.parent[p]
+
+    # Subtract the whole contribution from child node
+    for c in updates.get_items(0):
+        compute_branch_stat_update2(
+            c, l_state, r_state, state_dim, -1, stat_func, num_samples, stat, params
+        )
+
+    # Sample Removal
+    for e in r_state.edges_out:
+        p = ts.edges_parent[e]
+        ec = ts.edges_child[e]
+        # update samples under nodes, propagate upwards
+        while p != tskit.NULL:
+            for k in range(state_dim):
+                r_state.node_samples.difference(
+                    state_dim * p + k, r_state.node_samples, state_dim * ec + k
+                )
+            p = r_state.parent[p]
+        # set the parent to prevent upwards iteration
+        r_state.branch_len[ec] = 0
+        r_state.parent[ec] = tskit.NULL
+
+    # Sample Addition
+    for e in r_state.edges_in:
+        p = ts.edges_parent[e]
+        ec = c = ts.edges_child[e]
+        r_state.branch_len[c] = time[p] - time[c]
+        r_state.parent[c] = p
+        # update samples under nodes, store modified node, propagate upwards
+        while p != tskit.NULL:
+            updates.add(0, c)
+            for k in range(state_dim):
+                r_state.node_samples.union(
+                    state_dim * p + k, r_state.node_samples, state_dim * ec + k
+                )
+            c = p
+            p = r_state.parent[p]
+
+    # Update all affected child nodes (fully subtracted, deferred from addition)
+    for c in updates.get_items(0):
+        compute_branch_stat_update2(
+            c, l_state, r_state, state_dim, +1, stat_func, num_samples, stat, params
+        )
 
     return stat, r_state
 
