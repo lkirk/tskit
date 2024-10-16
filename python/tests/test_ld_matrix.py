@@ -133,15 +133,28 @@ class BitSet:
 
     def get_items(self: "BitSet", row: int) -> Generator[int, None, None]:
         """Get the items stored in the row of a bitset
+        Uses a de Bruijn sequence lookup table to determine the lowest bit set.
+        See the wikipedia article for more info: https://w.wiki/BYiF
 
         :param row: Row from the array to list from.
         :returns: A generator of integers stored in the array.
         """
+        lookup = [ 0, 1, 28, 2, 29, 14, 24, 3, 30, 22, 20, 15, 25, 17, 4, 8, 31, 27,
+                   13, 23, 21, 19, 16, 7, 26, 12, 18, 6, 11, 5, 10, 9 ]  # fmt:off
+        m = np.uint32(125613361)
         offset = row * self.row_len
         for i in range(self.row_len):
-            for item in range(self.CHUNK_SIZE):
-                if self.data[i + offset] & (self.DTYPE(1) << item):
-                    yield item + (i * self.CHUNK_SIZE)
+            v = self.data[i + offset]
+            if v == 0:
+                continue
+            else:
+                # v & -v operations rely on integer overflow
+                with np.errstate(over="ignore"):
+                    lsb = v & -v  # isolate the least significant bit
+                    while lsb:  # while there are bits remaining
+                        yield lookup[(lsb * m) >> 27] + (i * self.CHUNK_SIZE)
+                        v ^= lsb  # unset the lsb
+                        lsb = v & -v
 
     def contains(self: "BitSet", row: int, bit: int) -> bool:
         """Test if a bit is contained within a bit array row
@@ -1811,7 +1824,7 @@ def compute_branch_stat2(
 ):
     num_samples = ts.num_samples
     time = ts.tables.nodes.time
-    updates = set()
+    updates = BitSet(ts.num_nodes, 1)
 
     # Identify modified nodes
     for e in r_state.edges_out + r_state.edges_in:
@@ -1819,12 +1832,12 @@ def compute_branch_stat2(
         c = ts.edges_child[e]
         # identify affected nodes above child
         while p != tskit.NULL:
-            updates.add(c)
+            updates.add(0, c)
             c = p
             p = r_state.parent[p]
 
     # Subtract the whole contribution from child node
-    for c in updates:
+    for c in updates.get_items(0):
         compute_branch_stat_update2(
             c, l_state, r_state, state_dim, -1, stat_func, num_samples, stat, params
         )
@@ -1852,7 +1865,7 @@ def compute_branch_stat2(
         r_state.parent[c] = p
         # update samples under nodes, store modified node, propagate upwards
         while p != tskit.NULL:
-            updates.add(c)
+            updates.add(0, c)
             for k in range(state_dim):
                 r_state.node_samples.union(
                     state_dim * p + k, r_state.node_samples, state_dim * ec + k
@@ -1861,7 +1874,7 @@ def compute_branch_stat2(
             p = r_state.parent[p]
 
     # Update all affected child nodes (fully subtracted, deferred from addition)
-    for c in updates:
+    for c in updates.get_items(0):
         compute_branch_stat_update2(
             c, l_state, r_state, state_dim, +1, stat_func, num_samples, stat, params
         )
