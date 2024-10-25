@@ -44,6 +44,7 @@ import tskit
 from tests import tsutil
 from tests.test_highlevel import get_example_tree_sequences
 
+import sys
 
 @contextlib.contextmanager
 def suppress_overflow_div0_warning():
@@ -1573,6 +1574,11 @@ class TreeState:
         return
 
 
+def bprint(val):
+    """write bytes to stdout"""
+    sys.stdout.write((val + "\n").encode('utf-8'))
+
+
 def compute_branch_stat_update(
     c,
     child_samples,
@@ -1631,6 +1637,7 @@ def compute_branch_stat_update(
             weights[1, k] = w_A - w_AB  # w_Ab
             weights[2, k] = w_B - w_AB  # w_aB
 
+        bprint(f"summary_func\t\t\t{c}")
         stat_func(state_dim, weights, result_tmp, params)
         for k in range(state_dim):
             result[k] += result_tmp[k] * a_len * b_len
@@ -1655,6 +1662,7 @@ def compute_branch_stat_update(
                 weights[1, k] = w_A - w_AB  # w_Ab
                 weights[2, k] = w_B - w_AB  # w_aB
 
+            bprint(f"summary_func\t\t\t{c}")
             stat_func(state_dim, weights, result_tmp, params)
             for k in range(state_dim):
                 result[k] -= result_tmp[k] * a_len * b_len
@@ -1696,6 +1704,7 @@ def compute_branch_stat(ts, stat_func, stat, params, state_dim, l_state, r_state
         child_samples.data[:] = 0
         for k in range(state_dim):
             c_row = (state_dim * c) + k
+            bprint(f"add_samples_child\t{r_state.pos.index}\t{c}\t{ts.edges_child[e]}")
             child_samples.union(k, r_state.node_samples, c_row)
 
         # Remove the LD contributed by the samples under removed edges. When
@@ -1705,6 +1714,7 @@ def compute_branch_stat(ts, stat_func, stat, params, state_dim, l_state, r_state
         # branch as we propagate changes upward
         in_parent = None
         while p != tskit.NULL:
+            bprint(f"subtract_stat\t{r_state.pos.index}\t\t{c}")
             compute_branch_stat_update(
                 c,
                 in_parent,
@@ -1722,11 +1732,13 @@ def compute_branch_stat(ts, stat_func, stat, params, state_dim, l_state, r_state
                 # we remove the child node after the first iteration
                 for k in range(state_dim):
                     c_row = (state_dim * c) + k
+                    bprint(f"subtract_samples\t{r_state.pos.index}\t{c}\t{ts.edges_child[e]}")
                     r_state.node_samples.difference(c_row, child_samples, k)
             in_parent = child_samples
             c = p
             p = r_state.parent[p]
         for k in range(state_dim):
+            bprint(f"subtract_samples\t{r_state.pos.index}\t{c}\t{ts.edges_child[e]}")
             c_row = (state_dim * c) + k
             r_state.node_samples.difference(c_row, child_samples, k)
 
@@ -1741,6 +1753,7 @@ def compute_branch_stat(ts, stat_func, stat, params, state_dim, l_state, r_state
         child_samples.data[:] = 0
         for k in range(state_dim):
             c_row = (state_dim * c) + k
+            bprint(f"add_samples_child\t{r_state.pos.index}\t{c}\t{ts.edges_child[e]}")
             child_samples.union(k, r_state.node_samples, c_row)
         r_state.branch_len[c] = time[p] - time[c]
         r_state.parent[c] = p
@@ -1753,7 +1766,9 @@ def compute_branch_stat(ts, stat_func, stat, params, state_dim, l_state, r_state
         while p != tskit.NULL:
             for k in range(state_dim):
                 p_row = (state_dim * p) + k
+                bprint(f"add_samples\t{r_state.pos.index}\t{p}\t{ts.edges_child[e]}")
                 r_state.node_samples.union(p_row, child_samples, k)
+            bprint(f"add_stat\t{r_state.pos.index}\t\t{c}")
             compute_branch_stat_update(
                 c,
                 in_parent,
@@ -1808,6 +1823,7 @@ def compute_branch_stat_update2(
             weights[1, k] = w_A - w_AB  # w_Ab
             weights[2, k] = w_B - w_AB  # w_aB
 
+        bprint(f"summary_func\t\t\t{c}")
         stat_func(state_dim, weights, result_tmp, params)
         for k in range(state_dim):
             result[k] += result_tmp[k] * a_len * b_len
@@ -1838,6 +1854,7 @@ def compute_branch_stat2(
 
     # Subtract the whole contribution from child node
     for c in updates.get_items(0):
+        bprint(f"subtract_stat\t{r_state.pos.index}\t\t{c}")
         compute_branch_stat_update2(
             c, l_state, r_state, state_dim, -1, stat_func, num_samples, stat, params
         )
@@ -1849,6 +1866,7 @@ def compute_branch_stat2(
         # update samples under nodes, propagate upwards
         while p != tskit.NULL:
             for k in range(state_dim):
+                bprint(f"subtract_samples\t{r_state.pos.index}\t{p}\t{ec}")
                 r_state.node_samples.difference(
                     state_dim * p + k, r_state.node_samples, state_dim * ec + k
                 )
@@ -1867,6 +1885,7 @@ def compute_branch_stat2(
         while p != tskit.NULL:
             updates.add(0, c)
             for k in range(state_dim):
+                bprint(f"add_samples\t{r_state.pos.index}\t{p}\t{ec}")
                 r_state.node_samples.union(
                     state_dim * p + k, r_state.node_samples, state_dim * ec + k
                 )
@@ -1875,6 +1894,7 @@ def compute_branch_stat2(
 
     # Update all affected child nodes (fully subtracted, deferred from addition)
     for c in updates.get_items(0):
+        bprint(f"add_stat\t{r_state.pos.index}\t\t{c}")
         compute_branch_stat_update2(
             c, l_state, r_state, state_dim, +1, stat_func, num_samples, stat, params
         )
