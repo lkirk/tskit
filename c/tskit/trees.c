@@ -2991,9 +2991,6 @@ out:
     return ret;
 }
 
-// TODO: remove this forward declaration
-static tsk_id_t *tsk_tree_alloc_node_stack(const tsk_tree_t *self);
-
 static int
 compute_two_tree_branch_stat(const tsk_treeseq_t *ts, const iter_state *l_state,
     iter_state *r_state, general_stat_func_t *f, sample_count_stat_params_t *f_params,
@@ -3013,7 +3010,7 @@ compute_two_tree_branch_stat(const tsk_treeseq_t *ts, const iter_state *l_state,
     if (ret != 0) {
         goto out;
     }
-    updated_nodes = tsk_tree_alloc_node_stack(&r_state->tree);
+    updated_nodes = tsk_calloc(num_nodes, sizeof(*updated_nodes));
     if (updated_nodes == NULL) {
         ret = TSK_ERR_NO_MEMORY;
         goto out;
