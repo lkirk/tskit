@@ -532,10 +532,14 @@ test_bit_arrays(void)
     // NB: This test is only valid for the 32 bit implementation of bit arrays. If we
     //     were to change the chunk size of a bit array, we'd need to update these tests
     tsk_bit_array_t arr;
-    tsk_id_t items_truth[64], items[64];
+    tsk_id_t items_truth[64] = {0}, items[64] = {0};
     tsk_size_t n_items = 0, n_items_truth = 0;
 
+    // test item retrieval
     tsk_bit_array_init(&arr, 90, 1);
+    tsk_bit_array_get_items(&arr, items, &n_items);
+    assert_arrays_equal(n_items_truth, items, items_truth);
+
     for (tsk_bit_array_value_t i = 0; i < 20; i++) {
         tsk_bit_array_add_bit(&arr, i);
         items_truth[n_items_truth] = (tsk_id_t) i;
