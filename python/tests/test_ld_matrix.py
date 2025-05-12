@@ -24,6 +24,7 @@ Test cases for two-locus statistics
 """
 import contextlib
 import io
+import itertools
 from dataclasses import dataclass
 from itertools import combinations_with_replacement
 from itertools import permutations
@@ -217,7 +218,7 @@ class BitSet:
 
 
 def norm_hap_weighted(
-    state_dim: int,
+    result_dim: int,
     hap_weights: np.ndarray,
     n_a: int,
     n_b: int,
@@ -228,7 +229,7 @@ def norm_hap_weighted(
     sample sets. In this normalization strategy, we weight each allele's
     statistic by the proportion of the haplotype present.
 
-    :param state_dim: Number of sample sets.
+    :param result_dim: Number of sample sets.
     :param hap_weights: Proportion of each two-locus haplotype.
     :param n_a: Number of alleles at the A locus.
     :param n_b: Number of alleles at the B locus.
@@ -237,13 +238,13 @@ def norm_hap_weighted(
     """
     del n_a, n_b  # handle unused params
     sample_set_sizes = params["sample_set_sizes"]
-    for k in range(state_dim):
+    for k in range(result_dim):
         n = sample_set_sizes[k]
         result[k] = hap_weights[0, k] / n
 
 
 def norm_total_weighted(
-    state_dim: int,
+    result_dim: int,
     hap_weights: np.ndarray,
     n_a: int,
     n_b: int,
@@ -254,7 +255,7 @@ def norm_total_weighted(
     sample sets. In this normalization strategy, we weight each allele's
     statistic by the product of the allele frequencies
 
-    :param state_dim: Number of sample sets.
+    :param result_dim: Number of sample sets.
     :param hap_weights: Proportion of each two-locus haplotype.
     :param n_a: Number of alleles at the A locus.
     :param n_b: Number of alleles at the B locus.
@@ -262,7 +263,7 @@ def norm_total_weighted(
     :param params: Params of summary function.
     """
     del hap_weights, params  # handle unused params
-    for k in range(state_dim):
+    for k in range(result_dim):
         result[k] = 1 / (n_a * n_b)
 
 
@@ -468,6 +469,10 @@ def get_mutation_samples(
     return num_alleles, site_offsets, allele_samples
 
 
+type SummaryFunc = Callable[[int, np.ndarray, int, np.ndarray, Dict[str, Any]], None]
+type NormFunc = Callable[[int, np.ndarray, int, int, np.ndarray, Dict[str, Any]], None]
+
+
 def compute_general_two_site_stat_result(
     row_site_offset: int,
     col_site_offset: int,
@@ -477,8 +482,9 @@ def compute_general_two_site_stat_result(
     allele_samples: BitSet,
     state_dim: int,
     sample_sets: BitSet,
-    func: Callable[[int, np.ndarray, np.ndarray, Dict[str, Any]], None],
-    norm_func: Callable[[int, np.ndarray, int, int, np.ndarray, Dict[str, Any]], None],
+    result_dim: int,
+    func: SummaryFunc,
+    norm_func: NormFunc,
     params: Dict[str, Any],
     polarised: bool,
     result: np.ndarray,
@@ -493,7 +499,7 @@ def compute_general_two_site_stat_result(
     :param num_samples: Number of samples in tree sequence.
     :param allele_samples: BitSet containing the samples with each allelic state
                            for each site of interest.
-    :param state_dim: Number of sample sets.
+    :param result_dim: Dimensions of the result output.
     :param sample_sets: BitSet of sample sets to be intersected with the samples
                         contained within each allele.
     :param func: Summary function used to compute each two-locus statistic.
@@ -509,9 +515,9 @@ def compute_general_two_site_stat_result(
     ss_B_samples = BitSet(num_samples, 1)
     ss_AB_samples = BitSet(num_samples, 1)
     AB_samples = BitSet(num_samples, 1)
-    weights = np.zeros((3, state_dim), np.float64)
-    norm = np.zeros(state_dim, np.float64)
-    result_tmp = np.zeros(state_dim, np.float64)
+    weights = np.zeros((3, result_dim), np.float64)
+    norm = np.zeros(result_dim, np.float64)
+    result_tmp = np.zeros(result_dim, np.float64)
 
     polarised_val = 1 if polarised else 0
 
@@ -520,7 +526,7 @@ def compute_general_two_site_stat_result(
         for mut_b in range(polarised_val, num_col_alleles):
             b = int(mut_b + col_site_offset)
             allele_samples.intersect(a, allele_samples, b, AB_samples)
-            for k in range(state_dim):
+            for k in range(result_dim):
                 allele_samples.intersect(a, sample_sets, k, ss_A_samples)
                 allele_samples.intersect(b, sample_sets, k, ss_B_samples)
                 AB_samples.intersect(0, sample_sets, k, ss_AB_samples)
@@ -533,10 +539,10 @@ def compute_general_two_site_stat_result(
                 weights[1, k] = w_A - w_AB  # w_Ab
                 weights[2, k] = w_B - w_AB  # w_aB
 
-            func(state_dim, weights, result_tmp, params)
+            func(state_dim, weights, result_dim, result_tmp, params)
 
             norm_func(
-                state_dim,
+                result_dim,
                 weights,
                 num_row_alleles - polarised_val,
                 num_col_alleles - polarised_val,
@@ -544,20 +550,22 @@ def compute_general_two_site_stat_result(
                 params,
             )
 
-            for k in range(state_dim):
+            for k in range(result_dim):
                 result[k] += result_tmp[k] * norm[k]
 
 
 def two_site_count_stat(
     ts: tskit.TreeSequence,
-    func: Callable[[int, np.ndarray, np.ndarray, Dict[str, Any]], None],
-    norm_func: Callable[[int, np.ndarray, int, int, np.ndarray, Dict[str, Any]], None],
+    func: SummaryFunc,
+    norm_func: NormFunc,
+    result_dim: int,
     num_sample_sets: int,
     sample_set_sizes: np.ndarray,
     sample_sets: BitSet,
     sample_index_map: np.ndarray,
     row_sites: np.ndarray,
     col_sites: np.ndarray,
+    indexes: np.ndarray,
     polarised: bool,
 ) -> np.ndarray:
     """Outer function that generates the high-level intermediates used in the
@@ -574,22 +582,26 @@ def two_site_count_stat(
     :param func: Function used to compute each two-locus statistic.
     :param norm_func: Function used to generate the normalization coefficients
                       for each statistic.
+    :param result_dim: The dimensions of the output array. For one-way stats,
+                       this will be the number of sample sets. For two-way stats,
+                       the number of index tuples.
     :param num_sample_sets: Number of sample sets that we will consider.
     :param sample_set_sizes: Number of samples in each sample set.
     :param sample_sets: BitSet of samples to compute stats for. We will only
                         consider these samples in our computations, resulting
                         in stats that are computed on subsets of the samples
                         on the tree sequence.
+    :param sample_index_map: Mapping from a sample id to its node id. TODO??
     :param row_sites: Sites contained in the rows of the output matrix.
     :param col_sites: Sites contained in the columns of the output matrix.
     :param polarised: If true, skip the computation of the statistic for the
                       ancestral state.
     :returns: 3D array of results, dimensions (sample_sets, row_sites, col_sites).
     """
-    params = {"sample_set_sizes": sample_set_sizes}
-    result = np.zeros(
-        (num_sample_sets, len(row_sites), len(col_sites)), dtype=np.float64
-    )
+    params = {"sample_set_sizes": sample_set_sizes, "set_indexes": indexes}
+    result = np.zeros((result_dim, len(row_sites), len(col_sites)), dtype=np.float64)
+
+    state_dim = num_sample_sets
 
     sites, row_idx, col_idx = get_site_row_col_indices(row_sites, col_sites)
     num_alleles, site_offsets, allele_samples = get_mutation_samples(
@@ -605,8 +617,9 @@ def two_site_count_stat(
                 num_alleles[col_site],
                 ts.num_samples,
                 allele_samples,
-                num_sample_sets,
+                state_dim,
                 sample_sets,
+                result_dim,
                 func,
                 norm_func,
                 params,
@@ -642,7 +655,7 @@ def get_index_repeats(indices):
 
 def two_branch_count_stat(
     ts: tskit.TreeSequence,
-    func: Callable[[int, np.ndarray, np.ndarray, Dict[str, Any]], None],
+    func: SummaryFunc,
     norm_func,
     num_sample_sets: int,
     sample_set_sizes: np.ndarray,
@@ -650,6 +663,7 @@ def two_branch_count_stat(
     sample_index_map: np.ndarray,
     row_trees: np.ndarray,
     col_trees: np.ndarray,
+    indexes: np.ndarray,
     polarised: bool,
 ) -> np.ndarray:
     """
@@ -676,7 +690,7 @@ def two_branch_count_stat(
                       ancestral state.
     :returns: 3D array of results, dimensions (sample_sets, row_sites, col_sites).
     """
-    params = {"sample_set_sizes": sample_set_sizes}
+    params = {"sample_set_sizes": sample_set_sizes, "set_indexes": indexes}
     result = np.zeros(
         (num_sample_sets, len(row_trees), len(col_trees)), dtype=np.float64
     )
@@ -782,9 +796,11 @@ def two_locus_count_stat(
     norm_func,
     polarised,
     mode,
+    result_dim,
     sites=None,
     positions=None,
     sample_sets=None,
+    indexes=None,
 ):
     """Outer wrapper for two site general stat functionality. Perform some input
     validation, get the site index and allele state, then compute the LD matrix.
@@ -802,6 +818,12 @@ def two_locus_count_stat(
                         only consider these samples in our computations,
                         resulting in stats that are computed on subsets of the
                         samples on the tree sequence.
+    :param indexes: List of sample set indexes compute multi-population statistics
+                    on. The built-in multipopulation statistics only provide the
+                    functionality to compute $D^2$ (biased and unbiased), $r^2$,
+                    and $H^{+}$, meaning that two-locus statistics can only be
+                    computed between two sample sets. More complicated statistics
+                    can be provided with the two_locus_general_stat function.
     :returns: 3d numpy array containing LD for (sample_set,row_site,column_site)
               unless one or no sample sets are specified, then 2d array
               containing LD for (row_site,column_site).
@@ -810,6 +832,21 @@ def two_locus_count_stat(
         sample_sets = [ts.samples()]
 
     sample_index_map, ss_sizes, ss_bits = sample_sets_to_bit_array(ts, sample_sets)
+    # If indexes are specified, we are using two-way statistics
+    if indexes is not None:
+        indexes = tskit.util.safe_np_int_cast(indexes, np.int32)
+        idx_lens = {len(i) for i in indexes}
+        if idx_lens != {2}:
+            raise ValueError(
+                f"Sample set indexes must be length 2, lengths: {idx_lens}"
+            )
+        if summary_func.__name__.endswith("_unbiased"):
+            for s1, s2 in itertools.combinations(set(np.hstack(indexes)), 2):
+                if not set(s1).isdisjoint(s2):
+                    raise ValueError(
+                        "Unbiased stats require disjoint sample sets. "
+                        f"Sample sets are not disjoint: {s1}, {s2}"
+                    )
 
     if mode == "site":
         if positions is not None:
@@ -833,12 +870,14 @@ def two_locus_count_stat(
             ts,
             summary_func,
             norm_func,
+            result_dim,
             len(ss_sizes),
             ss_sizes,
             ss_bits,
             sample_index_map,
             row_sites,
             col_sites,
+            indexes,
             polarised,
         )
     elif mode == "branch":
@@ -877,6 +916,7 @@ def two_locus_count_stat(
             sample_index_map,
             row_trees,
             col_trees,
+            indexes,
             False,
         )
     else:
@@ -889,7 +929,11 @@ def two_locus_count_stat(
 
 
 def r2_summary_func(
-    state_dim: int, state: np.ndarray, result: np.ndarray, params: Dict[str, Any]
+    state_dim: int,
+    state: np.ndarray,
+    result_dim: int,
+    result: np.ndarray,
+    params: Dict[str, Any],
 ) -> None:
     """Summary function for the r2 statistic. We first compute the proportion of
     AB, A, and B haplotypes, then we compute the r2 statistic, storing the outputs
@@ -917,8 +961,45 @@ def r2_summary_func(
             result[k] = (D * D) / denom
 
 
+def r2_ij_summary_func(
+    state_dim: int,
+    state: np.ndarray,
+    result_dim: int,
+    result: np.ndarray,
+    params: Dict[str, Any],
+) -> None:
+    sample_set_sizes = params["sample_set_sizes"]
+    set_indexes = params["set_indexes"]
+    for k in range(result_dim):
+        i = set_indexes[k][0]
+        j = set_indexes[k][1]
+        n = sample_set_sizes[i]
+        p_AB = state[0, k] / n
+        p_Ab = state[1, k] / n
+        p_aB = state[2, k] / n
+        p_A = p_AB + p_Ab
+        p_B = p_AB + p_aB
+        D_i = p_AB - (p_A * p_B)
+        denom_i = np.sqrt(p_A * p_B * (1 - p_A) * (1 - p_B))
+
+        n = sample_set_sizes[j]
+        p_AB = state[0, k] / n
+        p_Ab = state[1, k] / n
+        p_aB = state[2, k] / n
+        p_A = p_AB + p_Ab
+        p_B = p_AB + p_aB
+        D_j = p_AB - (p_A * p_B)
+        denom_j = np.sqrt(p_A * p_B * (1 - p_A) * (1 - p_B))
+
+        result[k] = (D_i * D_j) / (denom_i * denom_j)
+
+
 def D_summary_func(
-    state_dim: int, state: np.ndarray, result: np.ndarray, params: Dict[str, Any]
+    state_dim: int,
+    state: np.ndarray,
+    result_dim: int,
+    result: np.ndarray,
+    params: Dict[str, Any],
 ) -> None:
     sample_set_sizes = params["sample_set_sizes"]
     for k in range(state_dim):
@@ -934,7 +1015,11 @@ def D_summary_func(
 
 
 def D2_summary_func(
-    state_dim: int, state: np.ndarray, result: np.ndarray, params: Dict[str, Any]
+    state_dim: int,
+    state: np.ndarray,
+    result_dim: int,
+    result: np.ndarray,
+    params: Dict[str, Any],
 ) -> None:
     sample_set_sizes = params["sample_set_sizes"]
     for k in range(state_dim):
@@ -951,7 +1036,11 @@ def D2_summary_func(
 
 
 def D_prime_summary_func(
-    state_dim: int, state: np.ndarray, result: np.ndarray, params: Dict[str, Any]
+    state_dim: int,
+    state: np.ndarray,
+    result_dim: int,
+    result: np.ndarray,
+    params: Dict[str, Any],
 ) -> None:
     sample_set_sizes = params["sample_set_sizes"]
     for k in range(state_dim):
@@ -972,7 +1061,11 @@ def D_prime_summary_func(
 
 
 def r_summary_func(
-    state_dim: int, state: np.ndarray, result: np.ndarray, params: Dict[str, Any]
+    state_dim: int,
+    state: np.ndarray,
+    result_dim: int,
+    result: np.ndarray,
+    params: Dict[str, Any],
 ) -> None:
     sample_set_sizes = params["sample_set_sizes"]
     for k in range(state_dim):
@@ -992,7 +1085,11 @@ def r_summary_func(
 
 
 def Dz_summary_func(
-    state_dim: int, state: np.ndarray, result: np.ndarray, params: Dict[str, Any]
+    state_dim: int,
+    state: np.ndarray,
+    result_dim: int,
+    result: np.ndarray,
+    params: Dict[str, Any],
 ) -> None:
     sample_set_sizes = params["sample_set_sizes"]
     for k in range(state_dim):
@@ -1010,7 +1107,11 @@ def Dz_summary_func(
 
 
 def pi2_summary_func(
-    state_dim: int, state: np.ndarray, result: np.ndarray, params: Dict[str, Any]
+    state_dim: int,
+    state: np.ndarray,
+    result_dim: int,
+    result: np.ndarray,
+    params: Dict[str, Any],
 ) -> None:
     sample_set_sizes = params["sample_set_sizes"]
     for k in range(state_dim):
@@ -1094,6 +1195,93 @@ def d2_unbiased(
             )
 
 
+def D2_ij_summary_func(
+    state_dim: int,
+    state: np.ndarray,
+    result_dim: int,
+    result: np.ndarray,
+    params: Dict[str, Any],
+):
+    sample_set_sizes = params["sample_set_sizes"]
+    set_indexes = params["set_indexes"]
+    for k in range(result_dim):
+        i = set_indexes[k][0]
+        j = set_indexes[k][1]
+
+        n = sample_set_sizes[i]
+        p_AB = state[0, k] / n
+        p_Ab = state[1, k] / n
+        p_aB = state[2, k] / n
+        p_A = p_AB + p_Ab
+        p_B = p_AB + p_aB
+        D_i = p_AB - (p_A * p_B)
+
+        n = sample_set_sizes[j]
+        p_AB = state[0, k] / n
+        p_Ab = state[1, k] / n
+        p_aB = state[2, k] / n
+        p_A = p_AB + p_Ab
+        p_B = p_AB + p_aB
+        D_j = p_AB - (p_A * p_B)
+
+        result[k] = D_i * D_j
+
+
+# TODO: check against moments
+def D2_ij_unbiased_summary_func(
+    state_dim: int,
+    state: np.ndarray,
+    result_dim: int,
+    result: np.ndarray,
+    params: Dict[str, Any],
+):
+    sample_set_sizes = params["sample_set_sizes"]
+    set_indexes = params["set_indexes"]
+
+    for k in range(result_dim):
+        i = set_indexes[k][0]
+        j = set_indexes[k][1]
+        if i == j:
+            # This is why we require disjoint sample sets for unbiased stats
+            n_i = sample_set_sizes[i]
+            w_AB_i = state[0, i]
+            w_Ab_i = state[1, i]
+            w_aB_i = state[2, i]
+            w_ab_i = n_i - (w_AB_i + w_Ab_i + w_aB_i)
+            result[k] = (
+                (
+                    w_AB_i * (w_AB_i - 1) * w_ab_i * (w_ab_i - 1)
+                    + w_Ab_i * (w_Ab_i - 1) * w_aB_i * (w_aB_i - 1)
+                    - 2 * w_AB_i * w_Ab_i * w_aB_i * w_ab_i
+                )
+                / n_i
+                / (n_i - 1)
+                / (n_i - 2)
+                / (n_i - 3)
+            )
+        else:
+            n_i = sample_set_sizes[i]
+            w_AB_i = state[0, i]
+            w_Ab_i = state[1, i]
+            w_aB_i = state[2, i]
+            w_ab_i = n_i - (w_AB_i + w_Ab_i + w_aB_i)
+
+            n_j = sample_set_sizes[j]
+            w_AB_j = state[0, j]
+            w_Ab_j = state[1, j]
+            w_aB_j = state[2, j]
+            w_ab_j = n_j - (w_AB_j + w_Ab_j + w_aB_j)
+
+            result[k] = (
+                (w_Ab_i * w_aB_i - w_AB_i * w_ab_i)
+                * (w_Ab_j * w_aB_j - w_AB_j * w_ab_j)
+                / n_i
+                / (n_i - 1)
+                / n_j
+                / (n_j - 1)
+            )
+
+
 SUMMARY_FUNCS = {
     "r": r_summary_func,
     "r2": r2_summary_func,
@@ -1107,6 +1295,12 @@ SUMMARY_FUNCS = {
     "pi2_unbiased": pi2_unbiased,
 }
 
+TWO_WAY_SUMMARY_FUNCS = {
+    "r2": r2_ij_summary_func,
+    "D2": D2_ij_summary_func,
+    "D2_unbiased": D2_ij_unbiased_summary_func,
+}
+
 NORM_METHOD = {
     D_summary_func: norm_total_weighted,
     D_prime_summary_func: norm_hap_weighted,
@@ -1118,6 +1312,9 @@ NORM_METHOD = {
     d2_unbiased: norm_total_weighted,
     dz_unbiased: norm_total_weighted,
     pi2_unbiased: norm_total_weighted,
+    r2_ij_summary_func: norm_hap_weighted,
+    D2_ij_summary_func: norm_total_weighted,
+    D2_ij_unbiased_summary_func: norm_total_weighted,
 }
 
 POLARIZATION = {
@@ -1131,19 +1328,59 @@ POLARIZATION = {
     d2_unbiased: False,
     dz_unbiased: False,
     pi2_unbiased: False,
+    r2_ij_summary_func: None,
+    D2_ij_summary_func: None,
+    D2_ij_unbiased_summary_func: None,
 }
 
 
-def ld_matrix(ts, sample_sets=None, sites=None, positions=None, stat="r2", mode="site"):
-    summary_func = SUMMARY_FUNCS[stat]
+def check_set_indexes(num_sets: int, num_set_indexes: int, set_indexes: np.ndarray):
+    for j in range(num_set_indexes):
+        if set_indexes[j] < 0 or set_indexes[j] >= num_sets:
+            raise ValueError(f"Bad sample set index: {j}")
+
+
+def check_sample_stat_inputs(
+    num_sample_sets: int,
+    tuple_size: int,
+    num_index_tuples: int,
+    index_tuples: np.ndarray,
+):
+    if num_sample_sets < tuple_size:
+        raise ValueError(
+            "Insufficient number of sample sets: "
+            f"num_sample_sets: {num_sample_sets} tuple_size: {tuple_size}"
+        )
+    if num_index_tuples < 1:
+        raise ValueError(f"Insufficient number of index tuples: {num_index_tuples}")
+    check_set_indexes(num_sample_sets, tuple_size * num_index_tuples, index_tuples)
+
+
+def ld_matrix(
+    ts,
+    sample_sets=None,
+    sites=None,
+    positions=None,
+    stat="r2",
+    indexes=None,
+    mode="site",
+):
+    if indexes is not None:
+        summary_func = TWO_WAY_SUMMARY_FUNCS[stat]
+        result_dim = len(indexes)
+    else:
+        summary_func = SUMMARY_FUNCS[stat]
+        result_dim = 1 if sample_sets is None else len(sample_sets)
     return two_locus_count_stat(
         ts,
         summary_func,
         NORM_METHOD[summary_func],
         POLARIZATION[summary_func],
         mode,
+        result_dim,
         sites=sites,
         positions=positions,
+        indexes=indexes,
         sample_sets=sample_sets,
     )
 
