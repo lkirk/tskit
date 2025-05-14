@@ -35,6 +35,7 @@ from typing import Dict
 from typing import Generator
 from typing import List
 from typing import Tuple
+from typing import TypeAlias
 
 import msprime
 import numpy as np
@@ -469,8 +470,12 @@ def get_mutation_samples(
     return num_alleles, site_offsets, allele_samples
 
 
-type SummaryFunc = Callable[[int, np.ndarray, int, np.ndarray, Dict[str, Any]], None]
-type NormFunc = Callable[[int, np.ndarray, int, int, np.ndarray, Dict[str, Any]], None]
+SummaryFunc: TypeAlias = Callable[
+    [int, np.ndarray, int, np.ndarray, Dict[str, Any]], None
+]
+NormFunc: TypeAlias = Callable[
+    [int, np.ndarray, int, int, np.ndarray, Dict[str, Any]], None
+]
 
 
 def compute_general_two_site_stat_result(
@@ -1137,8 +1142,12 @@ def pi2_summary_func(
 #       the summary functions defined above.
 
 
-def pi2_unbiased(
-    state_dim: int, state: np.ndarray, result: np.ndarray, params: Dict[str, Any]
+def pi2_unbiased_summary_func(
+    state_dim: int,
+    state: np.ndarray,
+    result_dim: int,
+    result: np.ndarray,
+    params: Dict[str, Any],
 ):
     sample_set_sizes = params["sample_set_sizes"]
     for k in range(state_dim):
@@ -1155,8 +1164,12 @@ def pi2_unbiased(
             )
 
 
-def dz_unbiased(
-    state_dim: int, state: np.ndarray, result: np.ndarray, params: Dict[str, Any]
+def dz_unbiased_summary_func(
+    state_dim: int,
+    state: np.ndarray,
+    result_dim: int,
+    result: np.ndarray,
+    params: Dict[str, Any],
 ):
     sample_set_sizes = params["sample_set_sizes"]
     for k in range(state_dim):
@@ -1177,8 +1190,12 @@ def dz_unbiased(
             )
 
 
-def d2_unbiased(
-    state_dim: int, state: np.ndarray, result: np.ndarray, params: Dict[str, Any]
+def d2_unbiased_summary_func(
+    state_dim: int,
+    state: np.ndarray,
+    result_dim: int,
+    result: np.ndarray,
+    params: Dict[str, Any],
 ):
     sample_set_sizes = params["sample_set_sizes"]
     for k in range(state_dim):
@@ -1290,9 +1307,9 @@ SUMMARY_FUNCS = {
     "D_prime": D_prime_summary_func,
     "pi2": pi2_summary_func,
     "Dz": Dz_summary_func,
-    "D2_unbiased": d2_unbiased,
-    "Dz_unbiased": dz_unbiased,
-    "pi2_unbiased": pi2_unbiased,
+    "D2_unbiased": d2_unbiased_summary_func,
+    "Dz_unbiased": dz_unbiased_summary_func,
+    "pi2_unbiased": pi2_unbiased_summary_func,
 }
 
 TWO_WAY_SUMMARY_FUNCS = {
@@ -1309,9 +1326,9 @@ NORM_METHOD = {
     pi2_summary_func: norm_total_weighted,
     r_summary_func: norm_total_weighted,
     r2_summary_func: norm_hap_weighted,
-    d2_unbiased: norm_total_weighted,
-    dz_unbiased: norm_total_weighted,
-    pi2_unbiased: norm_total_weighted,
+    d2_unbiased_summary_func: norm_total_weighted,
+    dz_unbiased_summary_func: norm_total_weighted,
+    pi2_unbiased_summary_func: norm_total_weighted,
     r2_ij_summary_func: norm_hap_weighted,
     D2_ij_summary_func: norm_total_weighted,
     D2_ij_unbiased_summary_func: norm_total_weighted,
@@ -1325,9 +1342,9 @@ POLARIZATION = {
     pi2_summary_func: False,
     r_summary_func: True,
     r2_summary_func: False,
-    d2_unbiased: False,
-    dz_unbiased: False,
-    pi2_unbiased: False,
+    d2_unbiased_summary_func: False,
+    dz_unbiased_summary_func: False,
+    pi2_unbiased_summary_func: False,
     r2_ij_summary_func: None,
     D2_ij_summary_func: None,
     D2_ij_unbiased_summary_func: None,
