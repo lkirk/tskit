@@ -22,6 +22,7 @@
 """
 Test cases for two-locus statistics
 """
+
 import contextlib
 import io
 import itertools
@@ -215,7 +216,7 @@ class BitSet:
             while v:
                 v &= v - self.DTYPE(1)
                 count += self.DTYPE(1)
-        return count
+        return int(count)
 
 
 def norm_hap_weighted(
@@ -520,7 +521,7 @@ def compute_general_two_site_stat_result(
     ss_B_samples = BitSet(num_samples, 1)
     ss_AB_samples = BitSet(num_samples, 1)
     AB_samples = BitSet(num_samples, 1)
-    weights = np.zeros((3, result_dim), np.float64)
+    weights = np.zeros((3, state_dim), np.float64)
     norm = np.zeros(result_dim, np.float64)
     result_tmp = np.zeros(result_dim, np.float64)
 
@@ -531,7 +532,7 @@ def compute_general_two_site_stat_result(
         for mut_b in range(polarised_val, num_col_alleles):
             b = int(mut_b + col_site_offset)
             allele_samples.intersect(a, allele_samples, b, AB_samples)
-            for k in range(result_dim):
+            for k in range(state_dim):
                 allele_samples.intersect(a, sample_sets, k, ss_A_samples)
                 allele_samples.intersect(b, sample_sets, k, ss_B_samples)
                 AB_samples.intersect(0, sample_sets, k, ss_AB_samples)
@@ -662,7 +663,8 @@ def two_branch_count_stat(
     ts: tskit.TreeSequence,
     func: SummaryFunc,
     norm_func,
-    num_sample_sets: int,
+    state_dim: int,
+    result_dim: int,
     sample_set_sizes: np.ndarray,
     sample_sets: BitSet,
     sample_index_map: np.ndarray,
@@ -696,16 +698,14 @@ def two_branch_count_stat(
     :returns: 3D array of results, dimensions (sample_sets, row_sites, col_sites).
     """
     params = {"sample_set_sizes": sample_set_sizes, "set_indexes": indexes}
-    result = np.zeros(
-        (num_sample_sets, len(row_trees), len(col_trees)), dtype=np.float64
-    )
+    result = np.zeros((result_dim, len(row_trees), len(col_trees)), dtype=np.float64)
     row_repeats = get_index_repeats(row_trees)
     col_repeats = get_index_repeats(col_trees)
 
-    stat = np.zeros(num_sample_sets, dtype=np.float64)
+    stat = np.zeros(result_dim, dtype=np.float64)
     # State is initialized at tree -1
-    l_state = TreeState(ts, sample_sets, num_sample_sets, sample_index_map)
-    r_state = TreeState(ts, sample_sets, num_sample_sets, sample_index_map)
+    l_state = TreeState(ts, sample_sets, state_dim, sample_index_map)
+    r_state = TreeState(ts, sample_sets, state_dim, sample_index_map)
 
     # Even if we're skipping trees, we must iterate over the range to keep the
     # running total of the statistic consistent.
@@ -713,17 +713,17 @@ def two_branch_count_stat(
     for r in range(row_trees[-1] + 1 - row_trees[0]):
         # zero out stat and r_state at the beginning of each row
         stat = np.zeros_like(stat)
-        r_state = TreeState(ts, sample_sets, num_sample_sets, sample_index_map)
+        r_state = TreeState(ts, sample_sets, state_dim, sample_index_map)
         l_state.advance(r + row_trees[0])
         # use null TreeState to advance l_state, conveniently we just zerod r_state
         _, l_state = compute_branch_stat(
-            ts, func, stat, params, num_sample_sets, r_state, l_state
+            ts, func, stat, params, state_dim, result_dim, r_state, l_state
         )
         col = 0
         for c in range(col_trees[-1] + 1 - col_trees[0]):
             r_state.advance(c + col_trees[0])
             stat, r_state = compute_branch_stat(
-                ts, func, stat, params, num_sample_sets, l_state, r_state
+                ts, func, stat, params, state_dim, result_dim, l_state, r_state
             )
             # Fill in repeated values for all sample sets
             for i in range(row_repeats[r]):
@@ -845,8 +845,9 @@ def two_locus_count_stat(
             raise ValueError(
                 f"Sample set indexes must be length 2, lengths: {idx_lens}"
             )
-        if summary_func.__name__.endswith("_unbiased"):
-            for s1, s2 in itertools.combinations(set(np.hstack(indexes)), 2):
+
+        if "_unbiased_" in summary_func.__name__:
+            for s1, s2 in itertools.combinations(sample_sets, 2):
                 if not set(s1).isdisjoint(s2):
                     raise ValueError(
                         "Unbiased stats require disjoint sample sets. "
@@ -916,6 +917,7 @@ def two_locus_count_stat(
             summary_func,
             None,
             len(ss_sizes),
+            result_dim,
             ss_sizes,
             ss_bits,
             sample_index_map,
@@ -927,8 +929,8 @@ def two_locus_count_stat(
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
-    # If there is one sample set, return a 2d numpy array of row/site LD
-    if len(sample_sets) == 1:
+    # If there is one result dimension, return a 2d array
+    if result_dim == 1:
         return result.reshape(result.shape[1:3])
     return result
 
@@ -1320,7 +1322,7 @@ TWO_WAY_SUMMARY_FUNCS = {
 
 NORM_METHOD = {
     D_summary_func: norm_total_weighted,
-    D_prime_summary_func: norm_hap_weighted,
+    D_prime_summary_func: norm_total_weighted,
     D2_summary_func: norm_total_weighted,
     Dz_summary_func: norm_total_weighted,
     pi2_summary_func: norm_total_weighted,
@@ -1831,6 +1833,7 @@ def compute_branch_stat_update(
     A_state,
     B_state,
     state_dim,
+    result_dim,
     sign,
     stat_func,
     num_samples,
@@ -1856,7 +1859,7 @@ def compute_branch_stat_update(
 
     AB_samples = BitSet(num_samples, 1)
     weights = np.zeros((3, state_dim), dtype=np.int64)
-    result_tmp = np.zeros(state_dim, np.float64)
+    result_tmp = np.zeros(result_dim, np.float64)
 
     for n in np.where(A_state.branch_len > 0)[0]:
         a_len = A_state.branch_len[n]
@@ -1874,8 +1877,8 @@ def compute_branch_stat_update(
             weights[1, k] = w_A - w_AB  # w_Ab
             weights[2, k] = w_B - w_AB  # w_aB
 
-        stat_func(state_dim, weights, result_tmp, params)
-        for k in range(state_dim):
+        stat_func(state_dim, weights, result_dim, result_tmp, params)
+        for k in range(result_dim):
             result[k] += result_tmp[k] * a_len * b_len
 
 
@@ -1885,6 +1888,7 @@ def compute_branch_stat(
     stat,
     params,
     state_dim,
+    result_dim,
     l_state: TreeState,
     r_state: TreeState,
 ):
@@ -1931,7 +1935,16 @@ def compute_branch_stat(
     # Subtract the whole contribution from child node
     for c in updates.get_items(0):
         compute_branch_stat_update(
-            c, l_state, r_state, state_dim, -1, stat_func, num_samples, stat, params
+            c,
+            l_state,
+            r_state,
+            state_dim,
+            result_dim,
+            -1,
+            stat_func,
+            num_samples,
+            stat,
+            params,
         )
 
     # Sample Removal
@@ -1968,7 +1981,16 @@ def compute_branch_stat(
     # Update all affected child nodes (fully subtracted, deferred from addition)
     for c in updates.get_items(0):
         compute_branch_stat_update(
-            c, l_state, r_state, state_dim, +1, stat_func, num_samples, stat, params
+            c,
+            l_state,
+            r_state,
+            state_dim,
+            result_dim,
+            +1,
+            stat_func,
+            num_samples,
+            stat,
+            params,
         )
 
     return stat, r_state
@@ -2052,4 +2074,47 @@ def test_branch_ld_matrix_sample_sets(ts, sample_set, stat):
             ld_matrix(ts, stat=stat, mode="branch", sample_sets=sample_set), axis=0
         ),
         ts.ld_matrix(stat=stat, mode="branch", sample_sets=sample_set),
+    )
+
+
+def get_test_branch_2pop_test_cases():
+    p_dict = {ps.id: ps for ps in get_example_tree_sequences()}
+    return [
+        pytest.param(
+            p_dict["n=100_m=1_rho=0"].values[0],
+            [
+                [51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67],
+                [51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67],
+            ],
+            id="n=100_m=1_rho=0",
+        ),
+        pytest.param(
+            p_dict["all_nodes_samples"].values[0],
+            [[2, 4, 5, 6], [2, 4, 5, 6]],
+            id="all_nodes_samples",
+        ),
+        pytest.param(
+            p_dict["bottleneck_n=10_mutated"].values[0],
+            [[1, 2, 4, 9], [1, 2, 4, 9]],
+            id="bottleneck_n=10_mutated",
+        ),
+        pytest.param(
+            p_dict["gap_at_end"].values[0],
+            [[1, 3, 5, 8], [1, 3, 5, 8]],
+            id="gap_at_end",
+        ),
+    ]
+
+
+@pytest.mark.parametrize("ts,sample_set", get_test_branch_2pop_test_cases())
+@pytest.mark.parametrize(
+    "stat", sorted([f for f in TWO_WAY_SUMMARY_FUNCS.keys() if "unbiased" not in f])
+)
+def test_branch_ld_matrix_2pop_sample_sets(ts, sample_set, stat):
+    res1, res2 = ts.ld_matrix(stat=stat, mode="branch", sample_sets=sample_set)
+    np.testing.assert_array_almost_equal(
+        ld_matrix(
+            ts, stat=stat, mode="branch", sample_sets=sample_set, indexes=[(0, 1)]
+        ),
+        res1,
     )
