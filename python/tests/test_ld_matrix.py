@@ -1370,9 +1370,10 @@ POLARIZATION = {
 
 
 def check_set_indexes(num_sets: int, num_set_indexes: int, set_indexes: np.ndarray):
-    for j in range(num_set_indexes):
-        if set_indexes[j] < 0 or set_indexes[j] >= num_sets:
-            raise ValueError(f"Bad sample set index: {j}")
+    for i in range(len(set_indexes)):
+        for j in range(num_set_indexes):
+            if set_indexes[i, j] < 0 or set_indexes[i, j] >= num_sets:
+                raise ValueError(f"Bad sample set index: {set_indexes[i, j]}")
 
 
 def check_sample_stat_inputs(
