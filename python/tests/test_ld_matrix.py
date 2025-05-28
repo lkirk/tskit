@@ -36,7 +36,6 @@ from typing import Dict
 from typing import Generator
 from typing import List
 from typing import Tuple
-from typing import TypeAlias
 
 import msprime
 import numpy as np
@@ -471,12 +470,8 @@ def get_mutation_samples(
     return num_alleles, site_offsets, allele_samples
 
 
-SummaryFunc: TypeAlias = Callable[
-    [int, np.ndarray, int, np.ndarray, Dict[str, Any]], None
-]
-NormFunc: TypeAlias = Callable[
-    [int, np.ndarray, int, int, np.ndarray, Dict[str, Any]], None
-]
+SummaryFunc = Callable[[int, np.ndarray, int, np.ndarray, Dict[str, Any]], None]
+NormFunc = Callable[[int, np.ndarray, int, int, np.ndarray, Dict[str, Any]], None]
 
 
 def compute_general_two_site_stat_result(
