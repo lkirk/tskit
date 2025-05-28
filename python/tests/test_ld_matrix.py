@@ -229,7 +229,7 @@ def norm_hap_weighted(
     sample sets. In this normalization strategy, we weight each allele's
     statistic by the proportion of the haplotype present.
 
-    :param result_dim: Number of sample sets.
+    :param result_dim: Number of dimensions in output. Dependent on arity of stat.
     :param hap_weights: Proportion of each two-locus haplotype.
     :param n_a: Number of alleles at the A locus.
     :param n_b: Number of alleles at the B locus.
@@ -255,7 +255,7 @@ def norm_total_weighted(
     sample sets. In this normalization strategy, we weight each allele's
     statistic by the product of the allele frequencies
 
-    :param result_dim: Number of sample sets.
+    :param result_dim: Number of dimensions in output. Dependent on arity of stat.
     :param hap_weights: Proportion of each two-locus haplotype.
     :param n_a: Number of alleles at the A locus.
     :param n_b: Number of alleles at the B locus.
@@ -278,8 +278,8 @@ def check_order_bounds_dups(values, max_value):
 
     Raises an exception if any error is found.
 
-    :param sites: 1d array of values to validate.
-    :param max_sites: The upper bound for the provided values.
+    :param values: 1d array of values to validate.
+    :param max_value: The upper bound for the provided values.
     """
     if len(values) == 0:
         return
@@ -435,6 +435,7 @@ def get_mutation_samples(
 
     :param ts: Tree sequence to gather data from.
     :param sites: Subset of sites to consider when gathering data.
+    :param sample_index_map: Mapping from node id to sample id
     :returns: Tuple of the number of alleles per site, site offsets, and the
               BitSet of all samples in each allelic state.
     """
@@ -493,15 +494,16 @@ def compute_general_two_site_stat_result(
     frequencies for each allelic state of the two pairs.
 
     :param row_site_offset: Offset of the row site's data in the allele_samples.
-    :param row_site_offset: Offset of the col site's data in the allele_samples.
+    :param col_site_offset: Offset of the col site's data in the allele_samples.
     :param num_row_alleles: Number of alleles in the row site.
     :param num_col_alleles: Number of alleles in the col site.
     :param num_samples: Number of samples in tree sequence.
     :param allele_samples: BitSet containing the samples with each allelic state
                            for each site of interest.
-    :param result_dim: Dimensions of the result output.
+    :param state_dim: Number of sample sets.
     :param sample_sets: BitSet of sample sets to be intersected with the samples
                         contained within each allele.
+    :param result_dim: Number of dimensions in output. Dependent on arity of stat.
     :param func: Summary function used to compute each two-locus statistic.
     :param norm_func: Function used to generate the normalization coefficients
                       for each statistic.
@@ -591,9 +593,12 @@ def two_site_count_stat(
                         consider these samples in our computations, resulting
                         in stats that are computed on subsets of the samples
                         on the tree sequence.
-    :param sample_index_map: Mapping from a sample id to its node id. TODO??
+    :param sample_index_map: Mapping from node id to sample id
     :param row_sites: Sites contained in the rows of the output matrix.
     :param col_sites: Sites contained in the columns of the output matrix.
+    :param indexes: List of sample set indexes on which to compute statistics. The
+                    arity (and hence the length of each index group) is dictated
+                    by the summary function.
     :param polarised: If true, skip the computation of the statistic for the
                       ancestral state.
     :returns: 3D array of results, dimensions (sample_sets, row_sites, col_sites).
@@ -679,14 +684,21 @@ def two_branch_count_stat(
     :param ts: Tree sequence to gather data from.
     :param func: Function used to compute each two-locus statistic.
     :param norm_func: Not (YET) applicable for branch stats: TODO?
-    :param num_sample_sets: Number of sample sets that we will consider.
+    :param state_dim: Number of sample sets.
+    :param result_dim: The dimensions of the output array. For one-way stats,
+                       this will be the number of sample sets. For two-way stats,
+                       the number of index tuples.
     :param sample_set_sizes: Number of samples in each sample set.
     :param sample_sets: BitSet of samples to compute stats for. We will only
                         consider these samples in our computations, resulting
                         in stats that are computed on subsets of the samples
                         on the tree sequence.
+    :param sample_index_map: Mapping from node id to sample id
     :param row_trees: Trees contained in the rows of the output matrix (repeats ok)
     :param col_trees: Trees contained in the rows of the output matrix (repeats ok)
+    :param indexes: List of sample set indexes on which to compute statistics. The
+                    arity (and hence the length of each index group) is dictated
+                    by the summary function.
     :param polarised: If true, skip the computation of the statistic for the
                       ancestral state.
     :returns: 3D array of results, dimensions (sample_sets, row_sites, col_sites).
@@ -810,6 +822,10 @@ def two_locus_count_stat(
                       for each statistic.
     :param polarised: If true, skip the computation of the statistic for the
                       ancestral state.
+    :param mode: Whether or not to compute "site" or "branch" statistics.
+    :param result_dim: The dimensions of the output array. For one-way stats,
+                       this will be the number of sample sets. For two-way stats,
+                       the number of index tuples.
     :param sites: List of two lists containing [row_sites, column_sites].
     :param positions: List of two lists containing [row_positions, col_positions],
                       which are genomic positions to compute LD on.
@@ -817,12 +833,9 @@ def two_locus_count_stat(
                         only consider these samples in our computations,
                         resulting in stats that are computed on subsets of the
                         samples on the tree sequence.
-    :param indexes: List of sample set indexes compute multi-population statistics
-                    on. The built-in multipopulation statistics only provide the
-                    functionality to compute $D^2$ (biased and unbiased), $r^2$,
-                    and $H^{+}$, meaning that two-locus statistics can only be
-                    computed between two sample sets. More complicated statistics
-                    can be provided with the two_locus_general_stat function.
+    :param indexes: List of sample set indexes on which to compute statistics. The
+                    arity (and hence the length of each index group) is dictated
+                    by the summary function.
     :returns: 3d numpy array containing LD for (sample_set,row_site,column_site)
               unless one or no sample sets are specified, then 2d array
               containing LD for (row_site,column_site).
@@ -948,6 +961,7 @@ def r2_summary_func(
 
     :param state_dim: Number of sample sets.
     :param state: Counts of 3 haplotype configurations for each sample set.
+    :param result_dim: Number of dimensions in output. Dependent on arity of stat.
     :param result: Vector of length state_dim to store the results in.
     :param params: Parameters for the summary function.
     """
@@ -1847,6 +1861,7 @@ def compute_branch_stat_update(
     :param A_state: State for the tree contributing to the A samples (fixed)
     :param B_state: State for the tree contributing to the B samples (modified)
     :param state_dim: Number of sample sets.
+    :param result_dim: Number of dimensions in output. Dependent on arity of stat.
     :param sign: The sign of the update
     :param stat_func: Function used to compute the two-locus statistic
     :param num_samples: Number of samples in the tree sequence
@@ -1913,6 +1928,7 @@ def compute_branch_stat(
     :param stat: The two-locus statistic computed between two trees.
     :param params: Params of summary function.
     :param state_dim: Number of sample sets.
+    :param result_dim: Number of dimensions in output. Dependent on arity of stat.
     :param l_state: The lefthand constant state
     :param r_state: The righthand state to be updated
     :returns: A tuple containing the statistic between the two trees after
