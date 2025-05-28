@@ -840,6 +840,12 @@ def two_locus_count_stat(
                 f"Sample set indexes must be length 2, lengths: {idx_lens}"
             )
 
+        # Unbiased multipopulation statistics require disjoint sample sets because
+        # we check sample set equality with the index of the sample set. If the
+        # sample sets overlapped, we would observe incorrect results. If the sample
+        # sets were equal, testing if sample set i == sample set j would yield
+        # an incorrect comparison (they would appear unequal, but in reality they
+        # are equal).
         if "_unbiased_" in summary_func.__name__:
             for s1, s2 in itertools.combinations(sample_sets, 2):
                 if not set(s1).isdisjoint(s2):
@@ -992,7 +998,8 @@ def r2_ij_summary_func(
         D_j = p_AB - (p_A * p_B)
         denom_j = np.sqrt(p_A * p_B * (1 - p_A) * (1 - p_B))
 
-        result[k] = (D_i * D_j) / (denom_i * denom_j)
+        with suppress_overflow_div0_warning():
+            result[k] = (D_i * D_j) / (denom_i * denom_j)
 
 
 def D_summary_func(
@@ -1160,7 +1167,7 @@ def pi2_unbiased_summary_func(
             )
 
 
-def dz_unbiased_summary_func(
+def Dz_unbiased_summary_func(
     state_dim: int,
     state: np.ndarray,
     result_dim: int,
@@ -1186,7 +1193,7 @@ def dz_unbiased_summary_func(
             )
 
 
-def d2_unbiased_summary_func(
+def D2_unbiased_summary_func(
     state_dim: int,
     state: np.ndarray,
     result_dim: int,
@@ -1240,7 +1247,6 @@ def D2_ij_summary_func(
         result[k] = D_i * D_j
 
 
-# TODO: check against moments
 def D2_ij_unbiased_summary_func(
     state_dim: int,
     state: np.ndarray,
@@ -1254,23 +1260,23 @@ def D2_ij_unbiased_summary_func(
     for k in range(result_dim):
         i = set_indexes[k][0]
         j = set_indexes[k][1]
+        # We require disjoint sample sets because we test equality here
         if i == j:
-            # This is why we require disjoint sample sets for unbiased stats
-            n_i = sample_set_sizes[i]
-            w_AB_i = state[0, i]
-            w_Ab_i = state[1, i]
-            w_aB_i = state[2, i]
-            w_ab_i = n_i - (w_AB_i + w_Ab_i + w_aB_i)
+            n = sample_set_sizes[i]
+            w_AB = state[0, i]
+            w_Ab = state[1, i]
+            w_aB = state[2, i]
+            w_ab = n - (w_AB + w_Ab + w_aB)
             result[k] = (
                 (
-                    w_AB_i * (w_AB_i - 1) * w_ab_i * (w_ab_i - 1)
-                    + w_Ab_i * (w_Ab_i - 1) * w_aB_i * (w_aB_i - 1)
-                    - 2 * w_AB_i * w_Ab_i * w_aB_i * w_ab_i
+                    w_AB * (w_AB - 1) * w_ab * (w_ab - 1)
+                    + w_Ab * (w_Ab - 1) * w_aB * (w_aB - 1)
+                    - 2 * w_AB * w_Ab * w_aB * w_ab
                 )
-                / n_i
-                / (n_i - 1)
-                / (n_i - 2)
-                / (n_i - 3)
+                / n
+                / (n - 1)
+                / (n - 2)
+                / (n - 3)
             )
         else:
             n_i = sample_set_sizes[i]
@@ -1303,8 +1309,8 @@ SUMMARY_FUNCS = {
     "D_prime": D_prime_summary_func,
     "pi2": pi2_summary_func,
     "Dz": Dz_summary_func,
-    "D2_unbiased": d2_unbiased_summary_func,
-    "Dz_unbiased": dz_unbiased_summary_func,
+    "D2_unbiased": D2_unbiased_summary_func,
+    "Dz_unbiased": Dz_unbiased_summary_func,
     "pi2_unbiased": pi2_unbiased_summary_func,
 }
 
@@ -1322,8 +1328,8 @@ NORM_METHOD = {
     pi2_summary_func: norm_total_weighted,
     r_summary_func: norm_total_weighted,
     r2_summary_func: norm_hap_weighted,
-    d2_unbiased_summary_func: norm_total_weighted,
-    dz_unbiased_summary_func: norm_total_weighted,
+    D2_unbiased_summary_func: norm_total_weighted,
+    Dz_unbiased_summary_func: norm_total_weighted,
     pi2_unbiased_summary_func: norm_total_weighted,
     r2_ij_summary_func: norm_hap_weighted,
     D2_ij_summary_func: norm_total_weighted,
@@ -1338,8 +1344,8 @@ POLARIZATION = {
     pi2_summary_func: False,
     r_summary_func: True,
     r2_summary_func: False,
-    d2_unbiased_summary_func: False,
-    dz_unbiased_summary_func: False,
+    D2_unbiased_summary_func: False,
+    Dz_unbiased_summary_func: False,
     pi2_unbiased_summary_func: False,
     r2_ij_summary_func: None,
     D2_ij_summary_func: None,
