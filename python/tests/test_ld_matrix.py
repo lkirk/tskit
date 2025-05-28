@@ -844,6 +844,7 @@ def two_locus_count_stat(
         sample_sets = [ts.samples()]
 
     sample_index_map, ss_sizes, ss_bits = sample_sets_to_bit_array(ts, sample_sets)
+    num_sample_sets = len(ss_sizes)
     # If indexes are specified, we are using two-way statistics
     if indexes is not None:
         indexes = tskit.util.safe_np_int_cast(indexes, np.int32)
@@ -853,6 +854,7 @@ def two_locus_count_stat(
                 f"Sample set indexes must be length 2, lengths: {idx_lens}"
             )
 
+        check_sample_stat_inputs(num_sample_sets, 2, result_dim, indexes)
         # Unbiased multipopulation statistics require disjoint sample sets because
         # we check sample set equality with the index of the sample set. If the
         # sample sets overlapped, we would observe incorrect results. If the sample
@@ -890,7 +892,7 @@ def two_locus_count_stat(
             summary_func,
             norm_func,
             result_dim,
-            len(ss_sizes),
+            num_sample_sets,
             ss_sizes,
             ss_bits,
             sample_index_map,
@@ -929,7 +931,7 @@ def two_locus_count_stat(
             ts,
             summary_func,
             None,
-            len(ss_sizes),
+            num_sample_sets,
             result_dim,
             ss_sizes,
             ss_bits,
