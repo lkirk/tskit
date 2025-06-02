@@ -10709,16 +10709,6 @@ class TreeSequence:
             "r2": self._ll_tree_sequence.r2_ij_matrix,
         }
         stats = one_way_stats if indexes is None else two_way_stats
-
-        # TODO: sample sets are not validated at this point.
-        if indexes is not None and stat.endswith("_unbiased"):
-            for s1, s2 in itertools.combinations(sample_sets, 2):
-                if not set(s1).isdisjoint(s2):
-                    raise ValueError(
-                        "Unbiased stats require disjoint sample sets. "
-                        f"Sample sets are not disjoint: {s1}, {s2}"
-                    )
-
         try:
             stat_func = stats[stat]
         except KeyError:
