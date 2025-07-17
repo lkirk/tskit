@@ -1780,6 +1780,7 @@ def test_ld_empty_examples(ts):
 
 
 def test_input_validation():
+    # TODO
     ts = get_paper_ex_ts()
     with pytest.raises(ValueError, match="Unknown two-locus statistic"):
         ts.ld_matrix(stat="bad_stat")
