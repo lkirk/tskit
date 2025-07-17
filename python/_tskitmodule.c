@@ -10516,7 +10516,7 @@ TreeSequence_ld_matrix(TreeSequence *self, PyObject *args, PyObject *kwds,
                   *result_matrix = NULL;
     tsk_id_t *row_sites_parsed = NULL, *col_sites_parsed = NULL;
     double *row_positions_parsed = NULL, *col_positions_parsed = NULL;
-    npy_intp result_dim[3];
+    npy_intp result_dim[3] = { 0, 0, 0 };
     char *mode = NULL;
     tsk_size_t num_sample_sets;
     tsk_flags_t options = 0;
@@ -10676,7 +10676,7 @@ TreeSequence_k_way_ld_matrix(TreeSequence *self, PyObject *args, PyObject *kwds,
                   *indexes_array = NULL, *result_matrix = NULL;
     tsk_id_t *row_sites_parsed = NULL, *col_sites_parsed = NULL;
     double *row_positions_parsed = NULL, *col_positions_parsed = NULL;
-    npy_intp *shape, result_dim[3];
+    npy_intp *shape, result_dim[3] = { 0, 0, 0 };
     char *mode = NULL;
     tsk_size_t num_sample_sets, num_set_index_tuples;
     tsk_flags_t options = 0;
