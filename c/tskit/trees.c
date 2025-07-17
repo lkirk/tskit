@@ -2243,6 +2243,30 @@ norm_hap_weighted(tsk_size_t result_dim, const double *hap_weights,
 }
 
 static int
+norm_hap_weighted_ij(tsk_size_t result_dim, const double *hap_weights,
+    tsk_size_t TSK_UNUSED(n_a), tsk_size_t TSK_UNUSED(n_b), double *result, void *params)
+{
+    sample_count_stat_params_t args = *(sample_count_stat_params_t *) params;
+    const double *weight_row;
+    double ni, nj, wAB_i, wAB_j;
+    tsk_size_t i, j, k;
+
+    for (k = 0; k < result_dim; k++) {
+        i = args.set_indexes[2 * k];
+        j = args.set_indexes[2 * k + 1];
+        ni = (double) args.sample_set_sizes[i];
+        nj = (double) args.sample_set_sizes[j];
+        weight_row = GET_2D_ROW(hap_weights, 3, i);
+        wAB_i = weight_row[i];
+        wAB_j = weight_row[j];
+
+        result[k] = (wAB_i / ni / 2) + (wAB_j / nj / 2);
+    }
+
+    return 0;
+}
+
+static int
 norm_total_weighted(tsk_size_t result_dim, const double *TSK_UNUSED(hap_weights),
     tsk_size_t n_a, tsk_size_t n_b, double *result, void *TSK_UNUSED(params))
 {
@@ -2539,7 +2563,7 @@ tsk_treeseq_two_site_count_stat(const tsk_treeseq_t *self, tsk_size_t state_dim,
     get_site_row_col_indices(
         n_rows, row_sites, n_cols, col_sites, sites, &n_sites, row_idx, col_idx);
 
-    // We rely on n_sites to allocate these arrays, these arrays are initialized
+    // We rely on n_sites to allocate these arrays, which are initialized
     // to NULL for safe deallocation if the previous allocation fails
     num_alleles = tsk_malloc(n_sites * sizeof(*num_alleles));
     site_offsets = tsk_malloc(n_sites * sizeof(*site_offsets));
@@ -3210,7 +3234,7 @@ tsk_treeseq_two_locus_count_stat(const tsk_treeseq_t *self, tsk_size_t num_sampl
     tsk_bit_array_t sample_sets_bits;
     bool stat_site = !!(options & TSK_STAT_SITE);
     bool stat_branch = !!(options & TSK_STAT_BRANCH);
-    // double default_windows[] = { 0, self->tables->sequence_length };
+    bool stat_node = !!(options & TSK_STAT_NODE);
     tsk_size_t state_dim = num_sample_sets;
     sample_count_stat_params_t f_params = { .sample_sets = sample_sets,
         .num_sample_sets = num_sample_sets,
@@ -3219,32 +3243,27 @@ tsk_treeseq_two_locus_count_stat(const tsk_treeseq_t *self, tsk_size_t num_sampl
 
     tsk_memset(&sample_sets_bits, 0, sizeof(sample_sets_bits));
 
-    // We do not support two-locus node stats
-    if (!!(options & TSK_STAT_NODE)) {
-        ret = tsk_trace_error(TSK_ERR_UNSUPPORTED_STAT_MODE);
-        goto out;
-    }
     // If no mode is specified, we default to site mode
     if (!(stat_site || stat_branch)) {
         stat_site = true;
     }
     // It's an error to specify more than one mode
-    if (stat_site + stat_branch > 1) {
+    if (stat_site + stat_branch + stat_node > 1) {
         ret = tsk_trace_error(TSK_ERR_MULTIPLE_STAT_MODES);
         goto out;
     }
-    // TODO: LOOK AT THE STAGING COPY
-    // TODO: impossible until we implement branch/windows
-    // if (result_dim < 1) {
-    //     ret = tsk_trace_error(TSK_ERR_BAD_RESULT_DIMS);
-    //     goto out;
-    // }
     ret = tsk_treeseq_check_sample_sets(
         self, num_sample_sets, sample_set_sizes, sample_sets);
     if (ret != 0) {
         goto out;
     }
-    tsk_bug_assert(state_dim > 0);
+    if (result_dim < 1) {
+        ret = tsk_trace_error(TSK_ERR_BAD_RESULT_DIMS);
+        goto out;
+    }
+    if (state_dim < 1) {
+        ret = tsk_trace_error(TSK_ERR_BAD_STATE_DIMS);
+    };
     ret = sample_sets_to_bit_array(
         self, sample_set_sizes, sample_sets, num_sample_sets, &sample_sets_bits);
     if (ret != 0) {
@@ -3277,6 +3296,8 @@ tsk_treeseq_two_locus_count_stat(const tsk_treeseq_t *self, tsk_size_t num_sampl
         ret = tsk_treeseq_two_branch_count_stat(self, state_dim, &sample_sets_bits,
             result_dim, f, &f_params, norm_f, out_rows, row_positions, out_cols,
             col_positions, options, result);
+    } else {
+        ret = tsk_trace_error(TSK_ERR_UNSUPPORTED_STAT_MODE);
     }
 
 out:
@@ -4972,7 +4993,7 @@ tsk_treeseq_r2_ij(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     }
     ret = tsk_treeseq_two_locus_count_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_index_tuples, index_tuples, r2_ij_summary_func,
-        norm_hap_weighted, num_rows, row_sites, row_positions, num_cols, col_sites,
+        norm_hap_weighted_ij, num_rows, row_sites, row_positions, num_cols, col_sites,
         col_positions, options, result);
 out:
     return ret;
