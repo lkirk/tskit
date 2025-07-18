@@ -2249,7 +2249,8 @@ norm_hap_weighted_ij(tsk_size_t result_dim, const double *hap_weights,
     sample_count_stat_params_t args = *(sample_count_stat_params_t *) params;
     const double *weight_row;
     double ni, nj, wAB_i, wAB_j;
-    tsk_id_t i, j, k;
+    tsk_id_t i, j;
+    tsk_size_t k;
 
     for (k = 0; k < result_dim; k++) {
         i = args.set_indexes[2 * k];
