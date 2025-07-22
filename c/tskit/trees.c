@@ -2258,8 +2258,9 @@ norm_hap_weighted_ij(tsk_size_t result_dim, const double *hap_weights,
         ni = (double) args.sample_set_sizes[i];
         nj = (double) args.sample_set_sizes[j];
         weight_row = GET_2D_ROW(hap_weights, 3, i);
-        wAB_i = weight_row[i];
-        wAB_j = weight_row[j];
+        wAB_i = weight_row[0];
+        weight_row = GET_2D_ROW(hap_weights, 3, j);
+        wAB_j = weight_row[0];
 
         result[k] = (wAB_i / ni / 2) + (wAB_j / nj / 2);
     }
