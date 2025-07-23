@@ -74,11 +74,9 @@ jobs:
         working-directory: python
         if: matrix.os == 'windows-latest'
         run: |
-          rm -r lib
-          mkdir lib
-          cp -r --dereference ../c/subprojects lib/.
-          cp -r --dereference ../c/tskit lib/.
-          cp ../c/tskit.h lib/.
+          rm -r subprojects
+          mkdir subprojects/libtskit
+          cp -r --dereference ../c/* subprojects/libtskit/.
 
       - name: Fix windows .profile
         if: steps.cache.outputs.cache-hit != 'true' && matrix.os == 'windows-latest'
@@ -104,7 +102,8 @@ jobs:
         run: |
           source ~/.profile
           conda activate anaconda-client-env
-          python setup.py build_ext --inplace
+          python -m build --wheel -Cbuild-dir=build
+          mv build/_tskit*.so .
 
       - name: Minidom test
         working-directory: python
