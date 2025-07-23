@@ -1321,17 +1321,18 @@ def D2_ij_unbiased_summary_func(
             w_Ab = state[1, i]
             w_aB = state[2, i]
             w_ab = n - (w_AB + w_Ab + w_aB)
-            result[k] = (
-                (
-                    w_AB * (w_AB - 1) * w_ab * (w_ab - 1)
-                    + w_Ab * (w_Ab - 1) * w_aB * (w_aB - 1)
-                    - 2 * w_AB * w_Ab * w_aB * w_ab
+            with suppress_overflow_div0_warning():
+                result[k] = (
+                    (
+                        w_AB * (w_AB - 1) * w_ab * (w_ab - 1)
+                        + w_Ab * (w_Ab - 1) * w_aB * (w_aB - 1)
+                        - 2 * w_AB * w_Ab * w_aB * w_ab
+                    )
+                    / n
+                    / (n - 1)
+                    / (n - 2)
+                    / (n - 3)
                 )
-                / n
-                / (n - 1)
-                / (n - 2)
-                / (n - 3)
-            )
         else:
             n_i = sample_set_sizes[i]
             w_AB_i = state[0, i]
@@ -1345,14 +1346,15 @@ def D2_ij_unbiased_summary_func(
             w_aB_j = state[2, j]
             w_ab_j = n_j - (w_AB_j + w_Ab_j + w_aB_j)
 
-            result[k] = (
-                (w_Ab_i * w_aB_i - w_AB_i * w_ab_i)
-                * (w_Ab_j * w_aB_j - w_AB_j * w_ab_j)
-                / n_i
-                / (n_i - 1)
-                / n_j
-                / (n_j - 1)
-            )
+            with suppress_overflow_div0_warning():
+                result[k] = (
+                    (w_Ab_i * w_aB_i - w_AB_i * w_ab_i)
+                    * (w_Ab_j * w_aB_j - w_AB_j * w_ab_j)
+                    / n_i
+                    / (n_i - 1)
+                    / n_j
+                    / (n_j - 1)
+                )
 
 
 SUMMARY_FUNCS = {
@@ -1797,6 +1799,17 @@ def test_input_validation():
         ts.ld_matrix(positions=[[1.0, 2.0], [2.0, 3.0], [3.0, 4.0]], mode="branch")
     with pytest.raises(ValueError, match="must be a length 1 or 2 list"):
         ts.ld_matrix(positions=[], mode="branch")
+
+    with pytest.raises(
+        ValueError, match="Sample sets must contain at least one element"
+    ):
+        ts.ld_matrix(sample_sets=[[1, 2, 3], []], indexes=[])
+    with pytest.raises(
+        ValueError, match="Indexes must be convertable to a 2D numpy array"
+    ):
+        ts.ld_matrix(
+            sample_sets=[ts.samples(), ts.samples()], indexes=[[1, 2, 3], [2, 3, 4]]
+        )
 
 
 @dataclass
@@ -2263,4 +2276,27 @@ def test_two_way_branch_ld_matrix(ts, sample_sets, stat):
     np.testing.assert_array_almost_equal(
         ld_matrix(ts, sample_sets=sample_sets, indexes=[(0, 0), (0, 1), (1, 1)]),
         ts.ld_matrix(sample_sets=sample_sets, indexes=[(0, 0), (0, 1), (1, 1)]),
+    )
+
+
+@pytest.mark.parametrize(
+    "ts",
+    [
+        ts
+        for ts in get_example_tree_sequences()
+        if ts.id not in {"no_samples", "empty_ts"}
+    ],
+)
+@pytest.mark.parametrize(
+    "stat",
+    sorted(TWO_WAY_SUMMARY_FUNCS.keys()),
+)
+def test_two_way_site_ld_matrix(ts, stat):
+    np.testing.assert_array_almost_equal(
+        ld_matrix(ts, stat=stat), ts.ld_matrix(stat=stat)
+    )
+    ss = [ts.samples()] * 3
+    np.testing.assert_array_almost_equal(
+        ld_matrix(ts, stat=stat, sample_sets=ss, indexes=[(0, 0), (0, 1), (1, 1)]),
+        ts.ld_matrix(stat=stat, sample_sets=ss, indexes=[(0, 0), (0, 1), (1, 1)]),
     )
