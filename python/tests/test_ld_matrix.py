@@ -22,6 +22,7 @@
 """
 Test cases for two-locus statistics
 """
+
 import contextlib
 import io
 from dataclasses import dataclass
@@ -268,7 +269,7 @@ def norm_hap_weighted_ij(
     del n_a, n_b  # handle unused params
     sample_set_sizes = params["sample_set_sizes"]
     set_indexes = params["set_indexes"]
-    # TODO: k should be ???
+
     for k in range(result_dim):
         i = set_indexes[k][0]
         j = set_indexes[k][1]
@@ -558,7 +559,6 @@ def compute_general_two_site_stat_result(
     result_tmp = np.zeros(result_dim, np.float64)
 
     polarised_val = 1 if polarised else 0
-
     for mut_a in range(polarised_val, num_row_alleles):
         a = int(mut_a + row_site_offset)
         for mut_b in range(polarised_val, num_col_alleles):
