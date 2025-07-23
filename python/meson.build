@@ -1,6 +1,7 @@
 project(
   'tskit', 'c',
   version: run_command(['tskit' / '_version.py'], check: true).stdout().strip()
+  default_options: ['c_std=c99', 'cpp_std=c++11']
 )
 
 subdir('tskit')
