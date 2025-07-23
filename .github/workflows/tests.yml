@@ -105,7 +105,11 @@ jobs:
         run: |
           source ~/.profile
           conda activate anaconda-client-env
-          meson setup build
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            CC=cl meson setup build
+          else
+            meson setup build
+          fi
           meson compile -C build
           mv build/_tskit*.so .
 
