@@ -10,7 +10,7 @@ py.install_sources(src, subdir: 'tskit')
 deps = [subproject('libtskit').get_variable('tskit_dep')]
 deps += declare_dependency(
   include_directories: run_command(
-    py, '-c', 'import numpy;print(numpy.get_include())',
+    py, '-c', 'import numpy,os;print(os.path.relpath(numpy.get_include()))',
     check: true
   ).stdout().strip()
 )
