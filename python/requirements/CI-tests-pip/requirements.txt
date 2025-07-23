@@ -1,3 +1,5 @@
+meson==1.8.2
+ninja==1.11.1.4
 lshmm==0.0.8
 pytest==8.3.5
 pytest-cov==6.0.0
