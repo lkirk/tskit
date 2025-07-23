@@ -1724,7 +1724,7 @@ class TestTreeSequence(LowLevelTestCase, MetadataTestMixin):
         stat_method = getattr(ts, stat_method_name)
 
         num_samples = len(ts.get_samples())
-        ss = np.concat([ts.get_samples(), ts.get_samples()])  # sample sets
+        ss = np.hstack([ts.get_samples(), ts.get_samples()])  # sample sets
         ss_sizes = np.array([num_samples, num_samples], dtype=np.uint32)
         indexes = [(0, 0), (0, 1)]
         row_sites = np.arange(ts.get_num_sites(), dtype=np.int32)
