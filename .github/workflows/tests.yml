@@ -75,7 +75,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           rm -r subprojects
-          mkdir subprojects/libtskit
+          mkdir -p subprojects/libtskit
           cp -r --dereference ../c/* subprojects/libtskit/.
 
       - name: Fix windows .profile
