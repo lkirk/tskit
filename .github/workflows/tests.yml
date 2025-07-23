@@ -78,6 +78,7 @@ jobs:
           mkdir -p subprojects/libtskit
           cp -r --dereference ../c/subprojects subprojects/libtskit/.
           cp -r --dereference ../c/tskit subprojects/libtskit/.
+          cp ../c/meson.build subprojects/libtskit/
 
       - name: Fix windows .profile
         if: steps.cache.outputs.cache-hit != 'true' && matrix.os == 'windows-latest'
@@ -103,7 +104,7 @@ jobs:
         run: |
           source ~/.profile
           conda activate anaconda-client-env
-          python -m build --wheel -Cbuild-dir=build
+          python -m build --wheel -Cbuild-dir=build --no-isolation --skip-dependency-check
           mv build/_tskit*.so .
 
       - name: Minidom test
@@ -165,7 +166,7 @@ jobs:
       - name: Build module
         working-directory: python
         run: |
-          python -m build --wheel -Cbuild-dir=build
+          python -m build --wheel -Cbuild-dir=build --no-isolation --skip-dependency-check
           mv build/_tskit*.so .
 
       - name: Run tests with numpy 1.x
