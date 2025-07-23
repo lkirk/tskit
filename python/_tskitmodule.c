@@ -14714,7 +14714,7 @@ static struct PyModuleDef tskitmodule = {
     .m_methods = tskit_methods,
 };
 
-PyObject *
+PyMODINIT_FUNC
 PyInit__tskit(void)
 {
     PyObject *module;

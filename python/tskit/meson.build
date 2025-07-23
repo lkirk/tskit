@@ -1,0 +1,18 @@
+src = files(
+  'cli.py',
+  'combinatorics.py',
+  'drawing.py',
+  'exceptions.py',
+  'genotypes.py',
+  '__init__.py',
+  'intervals.py',
+  '__main__.py',
+  'metadata.py',
+  'provenance.py',
+  'stats.py',
+  'tables.py',
+  'text_formats.py',
+  'trees.py',
+  'util.py',
+  'vcf.py',
+)

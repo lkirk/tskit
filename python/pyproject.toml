@@ -1,6 +1,9 @@
 [build-system]
-requires = ["setuptools>=45", "wheel", "numpy>=2.0"]
-build-backend = "setuptools.build_meta"
+requires = ["meson-python", "numpy>=2.0"]
+build-backend = "mesonpy"
+
+[tool.meson-python.args]
+setup = ["--default-library=static"]
 
 [project]
 name = "tskit"
@@ -55,12 +58,6 @@ GitHub = "https://github.com/tskit-dev/tskit/"
 
 [project.scripts]
 tskit = "tskit.cli:tskit_main"
-
-[tool.setuptools]
-packages = ["tskit"]
-
-[tool.setuptools.dynamic]
-version = {attr = "tskit._version.tskit_version"}
 
 [tool.pytest.ini_options]
 addopts = "-n 4"
