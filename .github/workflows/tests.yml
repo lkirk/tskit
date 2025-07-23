@@ -105,7 +105,8 @@ jobs:
         run: |
           source ~/.profile
           conda activate anaconda-client-env
-          python -m build --wheel -Cbuild-dir=build --no-isolation --skip-dependency-check
+          meson setup build
+          meson compile -C build
           mv build/_tskit*.so .
 
       - name: Minidom test
@@ -167,7 +168,8 @@ jobs:
       - name: Build module
         working-directory: python
         run: |
-          python -m build --wheel -Cbuild-dir=build --no-isolation --skip-dependency-check
+          meson setup build
+          meson compile -C build
           mv build/_tskit*.so .
 
       - name: Run tests with numpy 1.x

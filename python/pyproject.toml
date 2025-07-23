@@ -4,6 +4,7 @@ build-backend = "mesonpy"
 
 [tool.meson-python.args]
 setup = ["--default-library=static"]
+install = ["--skip-subprojects"]
 
 [project]
 name = "tskit"

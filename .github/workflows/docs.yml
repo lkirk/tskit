@@ -53,7 +53,7 @@ jobs:
 
       - name: Build C module
         if: env.MAKE_TARGET
-        run: make $MAKE_TARGET
+        run: cd python && meson setup build && meson compile -C build
 
       - name: Build Docs
         run: |
