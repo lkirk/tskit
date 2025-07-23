@@ -8,7 +8,6 @@ subdir('tskit')
 py = import('python').find_installation(pure: false)
 py.install_sources(src, subdir: 'tskit')
 
-tsk_dep = 
 deps = [
   subproject(
     'libtskit', default_options: ['werror=false']
