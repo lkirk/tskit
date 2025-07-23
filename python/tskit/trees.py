@@ -8113,15 +8113,6 @@ class TreeSequence:
         flattened = util.safe_np_int_cast(np.hstack(sample_sets), np.int32)
         row_sites, col_sites = self.parse_sites(sites)
         row_positions, col_positions = self.parse_positions(positions)
-        # drop_based_on_index = False
-        if indexes is None:
-            # drop_based_on_index = True
-            if len(sample_sets) != k:
-                raise ValueError(
-                    "Must specify indexes if there are not exactly {} sample "
-                    "sets.".format(k)
-                )
-            indexes = np.arange(k, dtype=np.int32)
         drop_dimension = False
         indexes = util.safe_np_int_cast(indexes, np.int32)
         if len(indexes.shape) == 1:
