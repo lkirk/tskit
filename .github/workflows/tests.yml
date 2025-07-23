@@ -74,9 +74,10 @@ jobs:
         working-directory: python
         if: matrix.os == 'windows-latest'
         run: |
-          rm -r subprojects
+          rm subprojects/libtskit
           mkdir -p subprojects/libtskit
-          cp -r --dereference ../c/* subprojects/libtskit/.
+          cp -r --dereference ../c/subprojects subprojects/libtskit/.
+          cp -r --dereference ../c/tskit subprojects/libtskit/.
 
       - name: Fix windows .profile
         if: steps.cache.outputs.cache-hit != 'true' && matrix.os == 'windows-latest'
