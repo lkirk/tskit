@@ -79,6 +79,7 @@ jobs:
           cp -r --dereference ../c/subprojects subprojects/libtskit/.
           cp -r --dereference ../c/tskit subprojects/libtskit/.
           cp ../c/meson.build subprojects/libtskit/
+          cp ../c/VERSION.txt subprojects/libtskit/
 
       - name: Fix windows .profile
         if: steps.cache.outputs.cache-hit != 'true' && matrix.os == 'windows-latest'
