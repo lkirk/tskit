@@ -2294,9 +2294,6 @@ get_all_samples_bits(tsk_bit_array_t *all_samples, tsk_size_t n)
     }
 }
 
-typedef int norm_func_t(tsk_size_t result_dim, const double *hap_weights, tsk_size_t n_a,
-    tsk_size_t n_b, double *result, void *params);
-
 static int
 compute_general_two_site_stat_result(const tsk_bit_array_t *site_a_state,
     const tsk_bit_array_t *site_b_state, tsk_size_t num_a_alleles,
@@ -3222,7 +3219,7 @@ out:
     return ret;
 }
 
-static int
+int
 tsk_treeseq_two_locus_count_stat(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
     tsk_size_t result_dim, const tsk_id_t *set_indexes, general_stat_func_t *f,
@@ -3263,9 +3260,6 @@ tsk_treeseq_two_locus_count_stat(const tsk_treeseq_t *self, tsk_size_t num_sampl
         ret = tsk_trace_error(TSK_ERR_BAD_RESULT_DIMS);
         goto out;
     }
-    if (state_dim < 1) {
-        ret = tsk_trace_error(TSK_ERR_BAD_STATE_DIMS);
-    };
     ret = sample_sets_to_bit_array(
         self, sample_set_sizes, sample_sets, num_sample_sets, &sample_sets_bits);
     if (ret != 0) {
