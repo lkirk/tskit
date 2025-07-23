@@ -164,7 +164,8 @@ jobs:
       - name: Build module
         working-directory: python
         run: |
-          python setup.py build_ext --inplace
+          python -m build --wheel -Cbuild-dir=build
+          mv build/_tskit*.so .
 
       - name: Run tests with numpy 1.x
         working-directory: python
