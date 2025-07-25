@@ -2268,7 +2268,6 @@ def test_dims(ts, params, shape):
     assert ts.ld_matrix(**params).shape == ld_matrix(ts, **params).shape == shape
 
 
-# TODO
 @pytest.mark.parametrize("ts,sample_sets", get_test_branch_2pop_test_cases())
 @pytest.mark.parametrize("stat", sorted(TWO_WAY_SUMMARY_FUNCS.keys()))
 def test_two_way_branch_ld_matrix(ts, sample_sets, stat):
