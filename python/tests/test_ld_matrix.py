@@ -252,11 +252,11 @@ def norm_hap_weighted_ij(
     result: np.ndarray,
     params: Dict[str, Any],
 ) -> None:
-    # """Create a vector of normalizing coefficients, length of the number of
-    # sample sets. In this normalization strategy, we weight each allele's
-    # statistic by the proportion of the haplotype present.
     """
-    TODO!
+    Create a vector of normalizing coefficients, length of the number of
+    index tuples. Each allele's statistic will be weighted by the average
+    of the proportion of AB haplotypes in each population present in the
+    index tuple.
 
     :param result_dim: Number of dimensions in output. Dependent on arity of stat.
     :param hap_weights: Proportion of each two-locus haplotype.
