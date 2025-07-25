@@ -1122,7 +1122,6 @@ int tsk_treeseq_pi2_unbiased(const tsk_treeseq_t *self, tsk_size_t num_sample_se
     const tsk_id_t *col_sites, const double *col_positions, tsk_flags_t options,
     double *result);
 
-// TODO: get rid of this??
 typedef int k_way_two_locus_count_stat_method(const tsk_treeseq_t *self,
     tsk_size_t num_sample_sets, const tsk_size_t *sample_set_sizes,
     const tsk_id_t *sample_sets, tsk_size_t num_index_tuples,
