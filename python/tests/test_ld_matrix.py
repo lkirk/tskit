@@ -590,9 +590,6 @@ def compute_general_two_site_stat_result(
             for k in range(result_dim):
                 result[k] += result_tmp[k] * norm[k]
 
-            # for k in range(result_dim):
-            #     print(mut_a, mut_b, k, weights[0, k], weights[1, k], weights[2, k], sep="\t")
-
 
 def two_site_count_stat(
     ts: tskit.TreeSequence,
@@ -1055,10 +1052,8 @@ def r2_ij_summary_func(
         D_j = pAB - pA * pB
         denom_j = np.sqrt(pA * (1 - pA) * pB * (1 - pB))
 
-        p_A = (w_A_i + w_A_j) / (ni + nj)
-        p_B = (w_B_i + w_B_j) / (ni + nj)
         with suppress_overflow_div0_warning():
-            result[k] = result[k] = (D_i * D_j) / (denom_i * denom_j)
+            result[k] = (D_i * D_j) / (denom_i * denom_j)
 
 
 def D_summary_func(
@@ -1780,7 +1775,6 @@ def test_ld_empty_examples(ts):
 
 
 def test_input_validation():
-    # TODO
     ts = get_paper_ex_ts()
     with pytest.raises(ValueError, match="Unknown two-locus statistic"):
         ts.ld_matrix(stat="bad_stat")
