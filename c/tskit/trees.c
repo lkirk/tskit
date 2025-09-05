@@ -2367,6 +2367,9 @@ two_locus_work_free(two_locus_work_t *work)
     tsk_safe_free(work->norm);
     tsk_safe_free(work->result_tmp);
     tsk_bitset_free(&work->AB_samples);
+    tsk_bitset_free(&work->ss_A_samples);
+    tsk_bitset_free(&work->ss_B_samples);
+    tsk_bitset_free(&work->ss_AB_samples);
 }
 
 static int
