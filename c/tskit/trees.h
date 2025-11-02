@@ -119,11 +119,13 @@ typedef struct {
 } tsk_treeseq_t;
 
 typedef struct {
+    double left;
+    double right;
+} interval_t;
+
+typedef struct {
     tsk_id_t index;
-    struct {
-        double left;
-        double right;
-    } interval;
+    interval_t interval;
     struct {
         tsk_id_t start;
         tsk_id_t stop;
@@ -1134,6 +1136,42 @@ typedef int k_way_two_locus_count_stat_method(const tsk_treeseq_t *self,
     const tsk_id_t *index_tuples, tsk_size_t num_rows, const tsk_id_t *row_sites,
     const double *row_positions, tsk_size_t num_cols, const tsk_id_t *col_sites,
     const double *col_positions, tsk_flags_t options, double *result);
+
+typedef int two_locus_decay_stat_method(const tsk_treeseq_t *self,
+    tsk_size_t num_sample_sets, const tsk_size_t *sample_set_sizes,
+    const tsk_id_t *sample_sets, const double *bins, tsk_size_t num_bins,
+    tsk_flags_t options, double *result);
+
+int tsk_treeseq_D_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
+    tsk_size_t num_bins, tsk_flags_t options, double *result);
+int tsk_treeseq_D2_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
+    tsk_size_t num_bins, tsk_flags_t options, double *result);
+int tsk_treeseq_r2_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
+    tsk_size_t num_bins, tsk_flags_t options, double *result);
+int tsk_treeseq_D_prime_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
+    tsk_size_t num_bins, tsk_flags_t options, double *result);
+int tsk_treeseq_r_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
+    tsk_size_t num_bins, tsk_flags_t options, double *result);
+int tsk_treeseq_Dz_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
+    tsk_size_t num_bins, tsk_flags_t options, double *result);
+int tsk_treeseq_pi2_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
+    tsk_size_t num_bins, tsk_flags_t options, double *result);
+int tsk_treeseq_D2_unbiased_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
+    tsk_size_t num_bins, tsk_flags_t options, double *result);
+int tsk_treeseq_Dz_unbiased_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
+    tsk_size_t num_bins, tsk_flags_t options, double *result);
+int tsk_treeseq_pi2_unbiased_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
+    tsk_size_t num_bins, tsk_flags_t options, double *result);
 
 /* Two way sample set stats */
 
