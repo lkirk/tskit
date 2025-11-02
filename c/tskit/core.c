@@ -853,7 +853,7 @@ tsk_blkalloc_free(tsk_blkalloc_t *self)
     }
 }
 
-/* Mirrors the semantics of numpy's searchsorted function. Uses binary
+/* Mirrors the semantics of numpy's searchsorted function (side='left'). Uses binary
  * search to find the index of the closest value in the array. */
 tsk_size_t
 tsk_search_sorted(const double *restrict array, tsk_size_t size, double value)
