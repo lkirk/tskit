@@ -3461,59 +3461,33 @@ out:
     return ret;
 }
 
-/* Find the distance span between two trees (ie the greatest and smallest distance that
- * can be represented by the subtraction of two tree's intervals.
- * NB: required condition: ivl_1 <= ivl_2 */
-static inline void
-get_distance_bounds(const interval_t i1, const interval_t i2, interval_t *out)
-{
-    // Equal intervals will stretch into the negative.
-    // TODO: any others? If not, the following will suffice.
-    // // If the intervals are equal
-    // if (i1.left == i2.left && i1.right == i2.right) {
-    //     out->left = 0;
-    //     out->right = i1.right;
-    //     return;
-    // }
-    out->left = fmax(0, i2.left - i1.right);
-    out->right = i2.right - i1.left;
-}
-
 // TODO: breaks at 0,1/0,1 -- span is into negative, no need to 1/2 stat.
+// TODO: support is bound or as written in test?
 static double
-integrate_stat_over_window(const interval_t i1, const interval_t i2,
-    const interval_t bounds, double wl, double wr, double stat)
+integrate_stat_over_bin(
+    const interval_t i1, const interval_t i2, double bl, double br, double stat)
 {
+    interval_t support = { i2.left - i1.right, i2.right - i1.left };
     double r2_len = fmin(i1.right - i1.left, i2.right - i2.left);
     // Size of the center region is determined by the larger of the two
     // intervals. It is zero if they are equal (triangle).
     double r2_l_bound = fmin(i2.left - i1.left, i2.right - i1.right);
-    double r2_r_bound = bounds.right - r2_len;
+    double r2_r_bound = support.right - r2_len;
     // left and right values for each of the 3 regions to integrate over
     // variable names are: r{region}_{left|right}
-    double r1_l = fmin(fmax(wl, bounds.left), r2_l_bound);
-    double r1_r = fmax(fmin(wr, r2_l_bound), bounds.left);
-    double r2_l = fmin(fmax(wl, r2_l_bound), r2_r_bound);
-    double r2_r = fmax(fmin(wr, r2_r_bound), r2_l_bound);
-    double r3_l = fmin(fmax(wl, r2_r_bound), bounds.right);
-    double r3_r = fmax(fmin(wr, bounds.right), r2_r_bound);
+    double r1_l = fmin(fmax(bl, support.left), r2_l_bound);
+    double r1_r = fmax(fmin(br, r2_l_bound), support.left);
+    double r2_l = fmin(fmax(bl, r2_l_bound), r2_r_bound);
+    double r2_r = fmax(fmin(br, r2_r_bound), r2_l_bound);
+    double r3_l = fmin(fmax(bl, r2_r_bound), support.right);
+    double r3_r = fmax(fmin(br, support.right), r2_r_bound);
     double i1_span = i1.right - i1.left;
     double i2_span = i2.right - i2.left;
-    // double s = (stat / i1_span) * (stat / i2_span)
-    //            * (-.5 * (r1_l - r1_r) * (2. * i1.right - 2. * i2.left + r1_l + r1_r)
-    //                  + (r2_r - r2_l) * r2_len
-    //                  + .5 * (r3_l - r3_r) * (2 * i1.left - 2. * i2.right + r3_l +
-    //                  r3_r));
 
-    double s
-        = (stat / i1_span) * (stat / i2_span)
-          * (-1. / 2 * (r1_l - r1_r) * (2 * i1.right - 2 * i2.left + r1_l + r1_r)
-                + (r2_r - r2_l) * r2_len
-                + 1. / 2 * (r3_l - r3_r) * (2 * i1.left - 2 * i2.right + r3_l + r3_r));
-    // printf("%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\n", s, r2_len, r2_l_bound,
-    //     r2_r_bound, r1_l, r1_r, r2_l, r2_r, r3_l, r3_r, i1_span, i2_span);
-    // printf("%f\n", s);
-    return s;
+    return stat / (i1_span * i2_span)
+           * (-1. / 2 * (r1_l - r1_r) * (2 * i1.right - 2 * i2.left + r1_l + r1_r)
+                 + (r2_r - r2_l) * r2_len
+                 + 1. / 2 * (r3_l - r3_r) * (2 * i1.left - 2 * i2.right + r3_l + r3_r));
 }
 
 static int
@@ -3559,13 +3533,9 @@ tsk_treeseq_two_locus_branch_decay_stat(const tsk_treeseq_t *self, tsk_size_t st
         goto out;
     }
     iter_state_clear(&l_state, state_dim, num_nodes, &node_samples);
-    // TODO: bin skipping based on range
     for (i = 0; i < self->num_trees; i++) {
         tsk_memset(result_tmp, 0, result_dim * sizeof(*result_tmp));
         iter_state_clear(&r_state, state_dim, num_nodes, &node_samples);
-        // TODO: check distance and continue if too short
-        // TODO: verify my assumptions that this is merely a setup step and we can
-        // discard the stat value
         ret = advance_collect_edges(&l_state, (tsk_id_t) i);
         if (ret != 0) {
             goto out;
@@ -3582,7 +3552,11 @@ tsk_treeseq_two_locus_branch_decay_stat(const tsk_treeseq_t *self, tsk_size_t st
                 goto out;
             }
             ivl_r = r_state.tree.tree_pos.interval;
-            get_distance_bounds(ivl_l, ivl_r, &bounds);
+            bounds = (interval_t){ fmax(0, ivl_r.left - ivl_l.right),
+                fmin(bins[num_bins - 1], ivl_r.right - ivl_l.left) };
+            if (bounds.left > bins[num_bins - 1] || bounds.right < bins[0]) {
+                continue;
+            }
             bin_l = tsk_search_sorted(bins + 1, num_bins - 1, bounds.left);
             bin_r = tsk_search_sorted(bins + 1, num_bins - 1, bounds.right);
             ret = compute_two_tree_branch_stat(self, &l_state, &r_state, f, f_params,
@@ -3594,29 +3568,23 @@ tsk_treeseq_two_locus_branch_decay_stat(const tsk_treeseq_t *self, tsk_size_t st
                 result_row = GET_2D_ROW(result, result_dim, bin_l);
                 bincount_row = GET_2D_ROW(bincount, result_dim, bin_l);
                 for (k = 0; k < result_dim; k++) {
-                    result_row[k] += integrate_stat_over_window(ivl_l, ivl_r, bounds,
-                        bins[bin_l], bins[bin_l + 1], result_tmp[k]);
+                    // double s = integrate_stat_over_window(ivl_l, ivl_r, bounds,
+                    //     bins[bin_l], bins[bin_l + 1], result_tmp[k]);
+                    // printf("%lu\t%lu\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\n", i,
+                    // j,
+                    //     bounds.left, bounds.right, bins[bin_l], bins[bin_l + 1],
+                    //     result_tmp[k], s);
+                    result_row[k] += integrate_stat_over_bin(
+                        ivl_l, ivl_r, bins[bin_l], bins[bin_l + 1], result_tmp[k]);
                     bincount_row[k] += 1;
                 }
-                if (bin_l == bin_r) {
-                    printf("%lu\t%lu\t%.14f\t%f\t%f\t== EQ ==\n", i, j, result_tmp[0],
-                        bins[bin_l], bins[bin_l + 1]);
-                } else {
-                    printf("%lu\t%lu\t%.14f\t%f\t%f\n", i, j, result_tmp[0], bins[bin_l],
-                        bins[bin_l + 1]);
-                }
                 bin_l++;
-            } while (bin_l < bin_r);
+            } while (bin_l <= bin_r);
         }
     }
     for (i = 0; i < (num_bins - 1) * result_dim; i++) {
         result[i] /= bincount[i];
     }
-    // printf("bins = { ");
-    // for (i = 0; i < num_bins - 1; i++) {
-    //     printf("%f, ", bins[i]);
-    // }
-    // printf("%f }\n", bins[i]);
     // printf("bincount = { ");
     // for (i = 0; i < num_bins - 2; i++) {
     //     printf("%lu, ", bincount[i]);
@@ -3724,7 +3692,7 @@ tsk_treeseq_two_locus_site_decay_stat(const tsk_treeseq_t *self, tsk_size_t stat
                 // both sites are biallelic
                 ret = compute_general_two_site_stat_result(&allele_sample_sets,
                     allele_counts, site_offsets[i], site_offsets[j], state_dim,
-                    result_dim, f, f_params, &work, &(result_row[j * result_dim]));
+                    result_dim, f, f_params, &work, result_tmp);
             } else {
                 // at least one site is multiallelic
                 ret = compute_general_normed_two_site_stat_result(&allele_sample_sets,
@@ -3748,13 +3716,6 @@ tsk_treeseq_two_locus_site_decay_stat(const tsk_treeseq_t *self, tsk_size_t stat
     for (i = 0; i < (num_bins - 1) * result_dim; i++) {
         result[i] /= bincount[i];
     }
-    // for (i = 0; i < num_bins - 1; i++) {
-    //     result_row = GET_2D_ROW(result, result_dim, i);
-    //     bincount_row = GET_2D_ROW(bincount, result_dim, i);
-    //     for (k = 0; k < result_dim; k++) {
-    //         result_row[k] /= (double) bincount_row[k];
-    //     }
-    // }
 out:
     tsk_safe_free(sites);
     tsk_safe_free(bincount);
