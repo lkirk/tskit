@@ -68,9 +68,6 @@ def construct_ld_matrix(ts, stat, sample_sets, indexes):
     different (likely more) amount of error.
     """
     bp = ts.breakpoints(as_array=True)[:-1]
-    # TODO: output dims
-    # __import__("IPython").embed()
-    # raise Exception
     k = len(sample_sets) if indexes is None else len(indexes)
     out = np.zeros((k, ts.num_trees, ts.num_trees))
     for i, b in enumerate(bp):
@@ -81,17 +78,6 @@ def construct_ld_matrix(ts, stat, sample_sets, indexes):
             stat=stat,
             positions=[[b], bp[i:]],
         )[:, 0, :]  # result is for one row
-    # else:
-    #     __import__("IPython").embed()
-    #     raise Exception
-    #     for k in range(max([k for i in indexes for k in i]) + 1):
-    #         out[k, i, i:] = ts.ld_matrix(
-    #             sample_sets=sample_sets,
-    #             mode="branch",
-    #             stat=stat,
-    #             indexes=indexes,
-    #             positions=[[b], bp[i:]],
-    #         )
     return out
 
 
@@ -111,7 +97,7 @@ def integrate_stat_over_bin(bin, i1, i2, stat):
     r2_l = min(max(bl, r2_l_bound), r2_r_bound)
     r2_r = max(min(br, r2_r_bound), r2_l_bound)
     r3_l = min(max(bl, r2_r_bound), r_support)
-    r3_r = max(min(br, r_support), r2_r_bound)  # this one differs from mm nb
+    r3_r = max(min(br, r_support), r2_r_bound)
     return (
         stat
         / (i1.span * i2.span)
@@ -169,8 +155,6 @@ def ld_decay_site(ts, bins, stat, sample_sets, indexes):
             if dist > bins[-1]:
                 break
             bin = np.searchsorted(bins[1:], dist, side="left")
-            # if bin == 3 and np.isnan(ld[:, i, j]).any():
-            #     breakpoint()
             for k in range(dims[0]):
                 s = ld[k, i, j]
                 if np.isnan(s):

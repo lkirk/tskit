@@ -3581,14 +3581,6 @@ tsk_treeseq_two_locus_branch_decay_stat(const tsk_treeseq_t *self, tsk_size_t st
     for (i = 0; i < (num_bins - 1) * result_dim; i++) {
         result[i] /= bincount[i];
     }
-    // for (k = 0; k < result_dim; k++) {
-    //     bincount_row = GET_2D_ROW(bincount, num_bins - 1, k);
-    //     printf("bincount%lu = { ", k);
-    //     for (i = 0; i < num_bins - 2; i++) {
-    //         printf("%lu, ", bincount_row[i]);
-    //     }
-    //     printf("%lu }\n", bincount_row[i]);
-    // }
 out:
     tsk_safe_free(result_tmp);
     tsk_safe_free(bincount);
@@ -3709,39 +3701,13 @@ tsk_treeseq_two_locus_site_decay_stat(const tsk_treeseq_t *self, tsk_size_t stat
                 }
                 result_row[k] += result_tmp[k];
                 bincount_row[k] += 1;
-                // if (result_row[0] != result_row[k]) {
-                //     printf("BAD %lu\t%f\t%f\n", k, result_row[0], result_row[k]);
-                // }
             }
             tsk_memset(result_tmp, 0, sizeof(*result_tmp) * result_dim);
         }
     }
-    // puts("result\t\tbincount");
     for (i = 0; i < (num_bins - 1) * result_dim; i++) {
-        // printf("%f\t%lu\n", result[i], bincount[i]);
         result[i] /= bincount[i];
     }
-    // puts("");
-    // puts("=======");
-    // puts("bincount = {");
-    // for (i = 0; i < num_bins - 1; i++) {
-    //     bincount_row = GET_2D_ROW(bincount, result_dim, i);
-    //     printf("    { ");
-    //     for (k = 0; k < result_dim - 1; k++) {
-    //         printf("%lu, ", bincount_row[k]);
-    //     }
-    //     printf("%lu },\n", bincount_row[k]);
-    // }
-    // puts("result = {");
-    // for (i = 0; i < num_bins - 1; i++) {
-    //     result_row = GET_2D_ROW(result, result_dim, i);
-    //     printf("    { ");
-    //     for (k = 0; k < result_dim - 1; k++) {
-    //         printf("%f, ", result_row[k]);
-    //     }
-    //     printf("%f },\n", result_row[k]);
-    // }
-    // puts("}");
 out:
     tsk_safe_free(sites);
     tsk_safe_free(bincount);
