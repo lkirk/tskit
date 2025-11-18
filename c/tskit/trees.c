@@ -3498,6 +3498,7 @@ tsk_treeseq_two_locus_branch_decay_stat(const tsk_treeseq_t *self, tsk_size_t st
     double *result)
 {
     int ret = 0;
+    const double *restrict breakpoints = self->breakpoints;
     const tsk_size_t num_nodes = self->tables->nodes.num_rows;
     interval_t bounds, ivl_l, ivl_r;
     iter_state l_state, r_state;
@@ -3547,18 +3548,18 @@ tsk_treeseq_two_locus_branch_decay_stat(const tsk_treeseq_t *self, tsk_size_t st
             goto out;
         }
         for (j = i; j < self->num_trees; j++) {
+            ivl_r = (interval_t){ breakpoints[j], breakpoints[j + 1] };
+            bounds = (interval_t){ fmax(0, ivl_r.left - ivl_l.right),
+                fmin(bins[num_bins - 1], ivl_r.right - ivl_l.left) };
+            bin_l = tsk_search_sorted(bins + 1, num_bins - 1, bounds.left);
+            bin_r = tsk_search_sorted(bins + 1, num_bins - 1, bounds.right);
+            if (bounds.left > bins[num_bins - 1] || bounds.right < bins[0]) {
+                continue;
+            }
             ret = advance_collect_edges(&r_state, (tsk_id_t) j);
             if (ret != 0) {
                 goto out;
             }
-            ivl_r = r_state.tree.tree_pos.interval;
-            bounds = (interval_t){ fmax(0, ivl_r.left - ivl_l.right),
-                fmin(bins[num_bins - 1], ivl_r.right - ivl_l.left) };
-            if (bounds.left > bins[num_bins - 1] || bounds.right < bins[0]) {
-                continue;
-            }
-            bin_l = tsk_search_sorted(bins + 1, num_bins - 1, bounds.left);
-            bin_r = tsk_search_sorted(bins + 1, num_bins - 1, bounds.right);
             ret = compute_two_tree_branch_stat(self, &l_state, &r_state, f, f_params,
                 result_dim, state_dim, result_tmp);
             if (ret != 0) {
@@ -3568,12 +3569,7 @@ tsk_treeseq_two_locus_branch_decay_stat(const tsk_treeseq_t *self, tsk_size_t st
                 result_row = GET_2D_ROW(result, result_dim, bin_l);
                 bincount_row = GET_2D_ROW(bincount, result_dim, bin_l);
                 for (k = 0; k < result_dim; k++) {
-                    // double s = integrate_stat_over_window(ivl_l, ivl_r, bounds,
-                    //     bins[bin_l], bins[bin_l + 1], result_tmp[k]);
-                    // printf("%lu\t%lu\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\n", i,
-                    // j,
-                    //     bounds.left, bounds.right, bins[bin_l], bins[bin_l + 1],
-                    //     result_tmp[k], s);
+                    // TODO: nansum??
                     result_row[k] += integrate_stat_over_bin(
                         ivl_l, ivl_r, bins[bin_l], bins[bin_l + 1], result_tmp[k]);
                     bincount_row[k] += 1;
@@ -3585,11 +3581,14 @@ tsk_treeseq_two_locus_branch_decay_stat(const tsk_treeseq_t *self, tsk_size_t st
     for (i = 0; i < (num_bins - 1) * result_dim; i++) {
         result[i] /= bincount[i];
     }
-    // printf("bincount = { ");
-    // for (i = 0; i < num_bins - 2; i++) {
-    //     printf("%lu, ", bincount[i]);
+    // for (k = 0; k < result_dim; k++) {
+    //     bincount_row = GET_2D_ROW(bincount, num_bins - 1, k);
+    //     printf("bincount%lu = { ", k);
+    //     for (i = 0; i < num_bins - 2; i++) {
+    //         printf("%lu, ", bincount_row[i]);
+    //     }
+    //     printf("%lu }\n", bincount_row[i]);
     // }
-    // printf("%lu }\n", bincount[i]);
 out:
     tsk_safe_free(result_tmp);
     tsk_safe_free(bincount);
@@ -3633,8 +3632,8 @@ tsk_treeseq_two_locus_site_decay_stat(const tsk_treeseq_t *self, tsk_size_t stat
     // depends on n_sites
     num_alleles = tsk_malloc(n_sites * sizeof(*num_alleles));
     site_offsets = tsk_malloc(n_sites * sizeof(*site_offsets));
-    result_tmp = tsk_calloc(sizeof(*result_tmp), result_dim);
-    bincount = tsk_calloc(sizeof(*bincount), num_bins * result_dim);
+    result_tmp = tsk_malloc(result_dim * sizeof(*result_tmp));
+    bincount = tsk_calloc(result_dim * (num_bins - 1), sizeof(*bincount));
     if (num_alleles == NULL || site_offsets == NULL || result_tmp == NULL
         || bincount == NULL) {
         ret = tsk_trace_error(TSK_ERR_NO_MEMORY);
@@ -3682,9 +3681,10 @@ tsk_treeseq_two_locus_site_decay_stat(const tsk_treeseq_t *self, tsk_size_t stat
             if (dist > bins[num_bins - 1]) {
                 break;
             }
-            // if (bins[0] <= dist) {
-            //     continue;
-            // }
+            // TODO: Very left interval is closed?
+            if (dist < bins[0]) {
+                continue;
+            }
             bin = tsk_search_sorted(bins + 1, num_bins - 1, dist);
             result_row = GET_2D_ROW(result, result_dim, bin);
             bincount_row = GET_2D_ROW(bincount, result_dim, bin);
@@ -3709,13 +3709,39 @@ tsk_treeseq_two_locus_site_decay_stat(const tsk_treeseq_t *self, tsk_size_t stat
                 }
                 result_row[k] += result_tmp[k];
                 bincount_row[k] += 1;
+                // if (result_row[0] != result_row[k]) {
+                //     printf("BAD %lu\t%f\t%f\n", k, result_row[0], result_row[k]);
+                // }
             }
             tsk_memset(result_tmp, 0, sizeof(*result_tmp) * result_dim);
         }
     }
+    // puts("result\t\tbincount");
     for (i = 0; i < (num_bins - 1) * result_dim; i++) {
+        // printf("%f\t%lu\n", result[i], bincount[i]);
         result[i] /= bincount[i];
     }
+    // puts("");
+    // puts("=======");
+    // puts("bincount = {");
+    // for (i = 0; i < num_bins - 1; i++) {
+    //     bincount_row = GET_2D_ROW(bincount, result_dim, i);
+    //     printf("    { ");
+    //     for (k = 0; k < result_dim - 1; k++) {
+    //         printf("%lu, ", bincount_row[k]);
+    //     }
+    //     printf("%lu },\n", bincount_row[k]);
+    // }
+    // puts("result = {");
+    // for (i = 0; i < num_bins - 1; i++) {
+    //     result_row = GET_2D_ROW(result, result_dim, i);
+    //     printf("    { ");
+    //     for (k = 0; k < result_dim - 1; k++) {
+    //         printf("%f, ", result_row[k]);
+    //     }
+    //     printf("%f },\n", result_row[k]);
+    // }
+    // puts("}");
 out:
     tsk_safe_free(sites);
     tsk_safe_free(bincount);
@@ -5463,6 +5489,24 @@ out:
     return ret;
 }
 
+int
+tsk_treeseq_D2_ij_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, const double *bins,
+    tsk_size_t num_bins, tsk_flags_t options, double *result)
+{
+    int ret = 0;
+    ret = check_sample_stat_inputs(num_sample_sets, 2, num_index_tuples, index_tuples);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsk_treeseq_two_locus_decay_stat(self, num_sample_sets, sample_set_sizes,
+        sample_sets, num_index_tuples, index_tuples, D2_ij_summary_func,
+        norm_total_weighted, bins, num_bins, options, result);
+out:
+    return ret;
+}
+
 static int
 D2_ij_unbiased_summary_func(tsk_size_t TSK_UNUSED(state_dim), const double *state,
     tsk_size_t result_dim, double *result, void *params)
@@ -5537,6 +5581,24 @@ out:
     return ret;
 }
 
+int
+tsk_treeseq_D2_ij_unbiased_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, const double *bins,
+    tsk_size_t num_bins, tsk_flags_t options, double *result)
+{
+    int ret = 0;
+    ret = check_sample_stat_inputs(num_sample_sets, 2, num_index_tuples, index_tuples);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsk_treeseq_two_locus_decay_stat(self, num_sample_sets, sample_set_sizes,
+        sample_sets, num_index_tuples, index_tuples, D2_ij_unbiased_summary_func,
+        norm_total_weighted, bins, num_bins, options, result);
+out:
+    return ret;
+}
+
 static int
 r2_ij_summary_func(tsk_size_t TSK_UNUSED(state_dim), const double *state,
     tsk_size_t result_dim, double *result, void *params)
@@ -5593,6 +5655,24 @@ tsk_treeseq_r2_ij(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
         sample_sets, num_index_tuples, index_tuples, r2_ij_summary_func,
         norm_hap_weighted_ij, num_rows, row_sites, row_positions, num_cols, col_sites,
         col_positions, options, result);
+out:
+    return ret;
+}
+
+int
+tsk_treeseq_r2_ij_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, const double *bins,
+    tsk_size_t num_bins, tsk_flags_t options, double *result)
+{
+    int ret = 0;
+    ret = check_sample_stat_inputs(num_sample_sets, 2, num_index_tuples, index_tuples);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsk_treeseq_two_locus_decay_stat(self, num_sample_sets, sample_set_sizes,
+        sample_sets, num_index_tuples, index_tuples, r2_ij_summary_func,
+        norm_hap_weighted_ij, bins, num_bins, options, result);
 out:
     return ret;
 }
