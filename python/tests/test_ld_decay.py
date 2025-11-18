@@ -69,9 +69,29 @@ def construct_ld_matrix(ts, stat, sample_sets, indexes):
     """
     bp = ts.breakpoints(as_array=True)[:-1]
     # TODO: output dims
-    out = np.zeros((1, ts.num_trees, ts.num_trees))
+    # __import__("IPython").embed()
+    # raise Exception
+    k = len(sample_sets) if indexes is None else len(indexes)
+    out = np.zeros((k, ts.num_trees, ts.num_trees))
     for i, b in enumerate(bp):
-        out[0, i, i:] = ts.ld_matrix(mode="branch", stat=stat, positions=[[b], bp[i:]])
+        out[0:k, i, i:] = ts.ld_matrix(
+            sample_sets=sample_sets,
+            indexes=indexes,
+            mode="branch",
+            stat=stat,
+            positions=[[b], bp[i:]],
+        )[:, 0, :]  # result is for one row
+    # else:
+    #     __import__("IPython").embed()
+    #     raise Exception
+    #     for k in range(max([k for i in indexes for k in i]) + 1):
+    #         out[k, i, i:] = ts.ld_matrix(
+    #             sample_sets=sample_sets,
+    #             mode="branch",
+    #             stat=stat,
+    #             indexes=indexes,
+    #             positions=[[b], bp[i:]],
+    #         )
     return out
 
 
@@ -104,7 +124,7 @@ def integrate_stat_over_bin(bin, i1, i2, stat):
 
 
 def isect(l1, r1, l2, r2):
-    """Right closed left open"""
+    """left open, right closed"""
     return max(l1, l2) < min(r1, r2) or l1 == r2 or l2 == r1
 
 
@@ -127,16 +147,6 @@ def ld_decay_branch(ts, bins, stat, sample_sets, indexes):
         ivl_r = Interval(bp[j], bp[j + 1])
         bounds = get_tree_pair_bounds(ivl_l, ivl_r, bins)
         for k in range(dims[0]):
-            # for b in bin_ivls:
-            #     if isect(*bounds, *b):
-            #         s = integrate_stat_over_bin(b, ivl_l, ivl_r, ld[k, i, j])
-            #         print(
-            #             f"{i}\t{j}\t"
-            #             f"{bounds.left:.15f}\t{bounds.right:.15f}\t"
-            #             f"{b[0]:.15f}\t{b[1]:.15f}\t"
-            #             f"{ld[k, i, j]:.15f}\t"
-            #             f"{s:.15f}"
-            #         )
             result[k] += np.apply_along_axis(
                 integrate_stat_over_bin, 1, bin_ivls, ivl_l, ivl_r, ld[k, i, j]
             )
@@ -147,24 +157,26 @@ def ld_decay_branch(ts, bins, stat, sample_sets, indexes):
 
 
 def ld_decay_site(ts, bins, stat, sample_sets, indexes):
+    # __import__("ipdb").set_trace()
     ld = ts.ld_matrix(stat=stat, sample_sets=sample_sets, indexes=indexes)
     dims = (len(indexes or sample_sets), len(bins) - 1)
     result = np.zeros(dims, dtype=float)
     bincount = np.zeros(dims, dtype=int)
     site_pos = ts.sites_position
-    for i, j in combinations(range(ts.num_sites), 2):  # upper tri-diag
-        dist = site_pos[j] - site_pos[i]
-        if dist > bins[-1]:
-            break
-        bin = np.searchsorted(bins[1:], dist, side="left")
-        # if bin == 3 and np.isnan(ld[:, i, j]).any():
-        #     breakpoint()
-        for k in range(dims[0]):
-            s = ld[k, i, j]
-            if np.isnan(s):
-                continue
-            result[k, bin] += s
-            bincount[k, bin] += 1
+    for i in range(ts.num_sites):
+        for j in range(i + 1, ts.num_sites):  # upper tri (-diag)
+            dist = site_pos[j] - site_pos[i]
+            if dist > bins[-1]:
+                break
+            bin = np.searchsorted(bins[1:], dist, side="left")
+            # if bin == 3 and np.isnan(ld[:, i, j]).any():
+            #     breakpoint()
+            for k in range(dims[0]):
+                s = ld[k, i, j]
+                if np.isnan(s):
+                    continue
+                result[k, bin] += s
+                bincount[k, bin] += 1
     if dims[0] == 1:  # drop dims if first dim is length 1
         return result.reshape(dims[1:]), bincount.reshape(dims[1:])
     return result, bincount
@@ -190,6 +202,7 @@ def ld_decay(
             result, count = ld_decay_branch(ts, bins, stat, sample_sets, indexes)
         case _:
             raise ValueError(f"Unknown Stats Mode: {mode}")
+
     if return_counts:
         return result, count
     with suppress_overflow_div0_warning():
@@ -208,6 +221,8 @@ ONE_WAY_STATS = [
     "Dz_unbiased",
     "pi2_unbiased",
 ]
+
+TWO_WAY_STATS = ["r2", "D2", "D2_unbiased"]
 
 TS = msprime.sim_mutations(
     msprime.sim_ancestry(
@@ -255,7 +270,32 @@ def test_ld_decay(stat, mode):
         np.testing.assert_array_almost_equal_nulp(
             np.nansum(decay), np.nansum(tu), nulp=2
         )
-        print(f"{stat} diff={np.nansum(decay) - np.nansum(tu)}")
     elif mode == "site":
         tu = TS.ld_matrix(stat=stat)[np.triu_indices(TS.num_sites, k=1)]
         np.testing.assert_allclose(decay.sum(), np.nansum(tu))
+
+
+@pytest.mark.parametrize("stat,mode", product(ONE_WAY_STATS, ["site", "branch"]))
+def test_ld_decay_sample_sets(stat, mode):
+    bins = np.logspace(0, np.log10(TS.sequence_length), num=35)
+    bins[0] = 0
+    sample_sets = [TS.samples(), TS.samples(), TS.samples()]
+    decay = TS.ld_decay(bins, sample_sets=sample_sets, stat=stat, mode=mode)
+    np.testing.assert_array_equal(decay[0], decay[1])
+    np.testing.assert_array_equal(decay[1], decay[2])
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("stat,mode", product(TWO_WAY_STATS, ["site", "branch"]))
+def test_two_way_ld_decay(stat, mode):
+    bins = np.logspace(0, np.log10(TS.sequence_length), num=35)
+    np.testing.assert_array_almost_equal(
+        ld_decay(TS, bins, stat=stat, mode=mode),
+        TS.ld_decay(bins, stat=stat, mode=mode),
+    )
+    ss = [TS.samples()] * 3
+    indexes = [(0, 0), (0, 1), (1, 1)]
+    np.testing.assert_array_almost_equal(
+        ld_decay(TS, bins, stat=stat, mode=mode, sample_sets=ss, indexes=indexes),
+        TS.ld_decay(bins, stat=stat, mode=mode, sample_sets=ss, indexes=indexes),
+    )

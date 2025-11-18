@@ -8374,6 +8374,45 @@ class TreeSequence:
 
         return result
 
+    def __k_way_two_locus_sample_set_decay_stat(
+        self,
+        ll_method,
+        k,
+        sample_sets,
+        bins,
+        indexes=None,
+        mode=None,
+    ):
+        sample_set_sizes = np.array(
+            [len(sample_set) for sample_set in sample_sets], dtype=np.uint32
+        )
+        if np.any(sample_set_sizes == 0):
+            raise ValueError("Sample sets must contain at least one element")
+        flattened = util.safe_np_int_cast(np.hstack(sample_sets), np.int32)
+        drop_dimension = False
+        indexes = util.safe_np_int_cast(indexes, np.int32)
+        if len(indexes.shape) == 1:
+            indexes = indexes.reshape((1, indexes.shape[0]))
+            drop_dimension = True
+        if len(indexes.shape) != 2 or indexes.shape[1] != k:
+            raise ValueError(
+                "Indexes must be convertable to a 2D numpy array with {} "
+                "columns".format(k)
+            )
+        result = ll_method(
+            sample_set_sizes,
+            flattened,
+            indexes,
+            bins,
+            mode,
+        )
+        if drop_dimension:
+            result = result.reshape(result.shape[0])
+        else:
+            # Orient the data so that the first dimension is the sample set.
+            result = result.swapaxes(0, 1)
+        return result
+
     def __k_way_weighted_stat(
         self,
         ll_method,
@@ -10923,8 +10962,8 @@ class TreeSequence:
             stat_func, sample_sets, sites=sites, positions=positions, mode=mode
         )
 
-    def ld_decay(self, bins, sample_sets=None, mode="site", stat="r2"):
-        stats = {
+    def ld_decay(self, bins, sample_sets=None, mode="site", stat="r2", indexes=None):
+        one_way_stats = {
             "D": self._ll_tree_sequence.D_decay,
             "D2": self._ll_tree_sequence.D2_decay,
             "r2": self._ll_tree_sequence.r2_decay,
@@ -10936,11 +10975,26 @@ class TreeSequence:
             "D2_unbiased": self._ll_tree_sequence.D2_unbiased_decay,
             "pi2_unbiased": self._ll_tree_sequence.pi2_unbiased_decay,
         }
+        two_way_stats = {
+            "D2": self._ll_tree_sequence.D2_ij_decay,
+            "D2_unbiased": self._ll_tree_sequence.D2_ij_unbiased_decay,
+            "r2": self._ll_tree_sequence.r2_ij_decay,
+        }
+        stats = one_way_stats if indexes is None else two_way_stats
         try:
             stat_func = stats[stat]
         except KeyError:
             raise ValueError(
                 f"Unknown two-locus statistic '{stat}', we support: {list(stats.keys())}"
+            )
+        if indexes is not None:
+            return self.__k_way_two_locus_sample_set_decay_stat(
+                stat_func,
+                2,
+                sample_sets,
+                bins,
+                indexes=indexes,
+                mode=mode,
             )
         return self.__two_locus_sample_set_decay_stat(
             stat_func,

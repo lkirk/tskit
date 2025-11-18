@@ -1142,6 +1142,12 @@ typedef int two_locus_decay_stat_method(const tsk_treeseq_t *self,
     const tsk_id_t *sample_sets, const double *bins, tsk_size_t num_bins,
     tsk_flags_t options, double *result);
 
+typedef int k_way_two_locus_decay_stat_method(const tsk_treeseq_t *self,
+    tsk_size_t num_sample_sets, const tsk_size_t *sample_set_sizes,
+    const tsk_id_t *sample_sets, tsk_size_t num_index_tuples,
+    const tsk_id_t *index_tuples, const double *bins, tsk_size_t num_bins,
+    tsk_flags_t options, double *result);
+
 int tsk_treeseq_D_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
     tsk_size_t num_bins, tsk_flags_t options, double *result);
@@ -1171,6 +1177,20 @@ int tsk_treeseq_Dz_unbiased_decay(const tsk_treeseq_t *self, tsk_size_t num_samp
     tsk_size_t num_bins, tsk_flags_t options, double *result);
 int tsk_treeseq_pi2_unbiased_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
+    tsk_size_t num_bins, tsk_flags_t options, double *result);
+
+int tsk_treeseq_D2_ij_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, const double *bins,
+    tsk_size_t num_bins, tsk_flags_t options, double *result);
+int tsk_treeseq_D2_ij_unbiased_decay(const tsk_treeseq_t *self,
+    tsk_size_t num_sample_sets, const tsk_size_t *sample_set_sizes,
+    const tsk_id_t *sample_sets, tsk_size_t num_index_tuples,
+    const tsk_id_t *index_tuples, const double *bins, tsk_size_t num_bins,
+    tsk_flags_t options, double *result);
+int tsk_treeseq_r2_ij_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
+    const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
+    tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, const double *bins,
     tsk_size_t num_bins, tsk_flags_t options, double *result);
 
 /* Two way sample set stats */

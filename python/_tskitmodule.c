@@ -8117,13 +8117,16 @@ TreeSequence_ld_decay(TreeSequence *self, PyObject *args, PyObject *kwds,
 {
     PyObject *ret = NULL;
     static char *kwlist[] = { "sample_set_sizes", "sample_sets", "bins", "mode", NULL };
-
-    PyObject *sample_sets = NULL, *sample_set_sizes = NULL;
-    PyArrayObject *sample_sets_array = NULL, *sample_set_sizes_array = NULL,
-                  *bins = NULL, *result_matrix = NULL;
-    npy_intp num_bins, result_dim[2];
-    char *mode = NULL;
+    PyObject *sample_sets = NULL;
+    PyObject *sample_set_sizes = NULL;
+    PyArrayObject *sample_sets_array = NULL;
+    PyArrayObject *sample_set_sizes_array = NULL;
+    PyArrayObject *bins = NULL;
+    PyArrayObject *result_matrix = NULL;
+    npy_intp num_bins;
+    npy_intp result_dim[2];
     tsk_size_t num_sample_sets;
+    char *mode = NULL;
     tsk_flags_t options = 0;
     int err;
 
@@ -8230,6 +8233,107 @@ static PyObject *
 TreeSequence_Dz_unbiased_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
 {
     return TreeSequence_ld_decay(self, args, kwds, tsk_treeseq_Dz_unbiased_decay);
+}
+
+static PyObject *
+TreeSequence_k_way_ld_decay(TreeSequence *self, PyObject *args, PyObject *kwds,
+    npy_intp tuple_size, k_way_two_locus_decay_stat_method *method)
+{
+    PyObject *ret = NULL;
+    static char *kwlist[]
+        = { "sample_set_sizes", "sample_sets", "indexes", "bins", "mode", NULL };
+    PyObject *sample_sets = NULL;
+    PyObject *sample_set_sizes = NULL;
+    PyObject *indexes = NULL;
+    PyArrayObject *bins = NULL;
+    PyArrayObject *indexes_array = NULL;
+    PyArrayObject *result_matrix = NULL;
+    PyArrayObject *sample_sets_array = NULL;
+    PyArrayObject *sample_set_sizes_array = NULL;
+    npy_intp num_bins;
+    npy_intp *shape;
+    npy_intp result_dim[2];
+    tsk_size_t num_sample_sets;
+    tsk_size_t num_set_index_tuples;
+    char *mode = NULL;
+    tsk_flags_t options = 0;
+    int err;
+
+    if (TreeSequence_check_state(self) != 0) {
+        goto out;
+    }
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOOO&|s", kwlist, &sample_set_sizes,
+            &sample_sets, &indexes, &float64_array_converter, &bins, &mode)) {
+        goto out;
+    }
+    if (parse_stats_mode(mode, &options) != 0) {
+        goto out;
+    }
+    if (parse_sample_sets(sample_set_sizes, &sample_set_sizes_array, sample_sets,
+            &sample_sets_array, &num_sample_sets)
+        != 0) {
+        goto out;
+    }
+    indexes_array = (PyArrayObject *) PyArray_FROMANY(
+        indexes, NPY_INT32, 2, 2, NPY_ARRAY_IN_ARRAY);
+    if (indexes_array == NULL) {
+        goto out;
+    }
+    shape = PyArray_DIMS(indexes_array);
+    if (shape[0] < 1 || shape[1] != tuple_size) {
+        PyErr_Format(
+            PyExc_ValueError, "indexes must be a k x %d array.", (int) tuple_size);
+        goto out;
+    }
+    num_set_index_tuples = shape[0];
+    num_bins = PyArray_DIM(bins, 0);
+    result_dim[0] = num_bins - 1;
+    result_dim[1] = num_set_index_tuples;
+    result_matrix = (PyArrayObject *) PyArray_ZEROS(2, result_dim, NPY_FLOAT64, 0);
+    if (result_matrix == NULL) {
+        PyErr_NoMemory();
+        goto out;
+    }
+    // clang-format off
+    Py_BEGIN_ALLOW_THREADS
+    err = method(self->tree_sequence, num_sample_sets,
+		 PyArray_DATA(sample_set_sizes_array), PyArray_DATA(sample_sets_array), num_set_index_tuples, 
+		 PyArray_DATA(indexes_array), PyArray_DATA(bins), num_bins, options, PyArray_DATA(result_matrix));
+    Py_END_ALLOW_THREADS
+        // clang-format on
+        if (err != 0)
+    {
+        handle_library_error(err);
+        goto out;
+    }
+    ret = (PyObject *) result_matrix;
+    result_matrix = NULL;
+out:
+    Py_XDECREF(bins);
+    Py_XDECREF(indexes_array);
+    Py_XDECREF(sample_sets_array);
+    Py_XDECREF(sample_set_sizes_array);
+    Py_XDECREF(result_matrix);
+    return ret;
+}
+
+static PyObject *
+TreeSequence_D2_ij_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_decay(self, args, kwds, 2, tsk_treeseq_D2_ij_decay);
+}
+
+static PyObject *
+TreeSequence_D2_ij_unbiased_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_decay(
+        self, args, kwds, 2, tsk_treeseq_D2_ij_unbiased_decay);
+}
+
+static PyObject *
+TreeSequence_r2_ij_decay(TreeSequence *self, PyObject *args, PyObject *kwds)
+{
+    return TreeSequence_k_way_ld_decay(self, args, kwds, 2, tsk_treeseq_r2_ij_decay);
 }
 
 static PyObject *
@@ -8991,6 +9095,18 @@ static PyMethodDef TreeSequence_methods[] = {
         .ml_meth = (PyCFunction) TreeSequence_r2_ij_matrix,
         .ml_flags = METH_VARARGS | METH_KEYWORDS,
         .ml_doc = "Computes the two-way r^2 matrix." },
+    { .ml_name = "r2_ij_decay",
+        .ml_meth = (PyCFunction) TreeSequence_r2_ij_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the two-way r2 decay curve." },
+    { .ml_name = "D2_ij_decay",
+        .ml_meth = (PyCFunction) TreeSequence_D2_ij_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the two-way D2 decay curve." },
+    { .ml_name = "D2_ij_unbiased_decay",
+        .ml_meth = (PyCFunction) TreeSequence_D2_ij_unbiased_decay,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = "Computes the two-way unbiased D2 decay curve." },
     { NULL } /* Sentinel */
 };
 
