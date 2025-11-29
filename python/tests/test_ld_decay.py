@@ -1,5 +1,4 @@
 import contextlib
-from itertools import combinations
 from itertools import combinations_with_replacement
 from itertools import product
 
@@ -25,12 +24,9 @@ def expand_dims(arr):
     necessary in the C implementation because dimension dropping happens in the
     python layer.
     """
-    try:
-        arr = np.asarray(arr)
-        if arr.ndim == 1:
-            return np.expand_dims(arr, axis=0)
-    except:
-        pass
+    arr = np.asarray(arr)
+    if arr.ndim == 1:
+        return np.expand_dims(arr, axis=0)
     try:
         arr = [np.asarray(a) for a in arr]
     except Exception as e:
@@ -110,13 +106,13 @@ def integrate_stat_over_bin(bin, i1, i2, stat):
 
 
 def isect(l1, r1, l2, r2):
-    """left open, right closed"""
-    return max(l1, l2) < min(r1, r2) or l1 == r2 or l2 == r1
+    "left closed, right open, left is ivl and right is query"
+    return max(l1, l2) < min(r1, r2)
 
 
 def get_tree_pair_bounds(ivl_l, ivl_r, bins):
     return Interval(
-        max(0, ivl_r.left - ivl_l.right),
+        max(bins[0], ivl_r.left - ivl_l.right),
         min(bins[-1], ivl_r.right - ivl_l.left),
     )
 
@@ -143,7 +139,6 @@ def ld_decay_branch(ts, bins, stat, sample_sets, indexes):
 
 
 def ld_decay_site(ts, bins, stat, sample_sets, indexes):
-    # __import__("ipdb").set_trace()
     ld = ts.ld_matrix(stat=stat, sample_sets=sample_sets, indexes=indexes)
     dims = (len(indexes or sample_sets), len(bins) - 1)
     result = np.zeros(dims, dtype=float)
@@ -250,7 +245,7 @@ def test_ld_decay(stat, mode):
         dmask = np.diag_indices_from(tu)
         tu[dmask] = tu[dmask] / 2  # we take half the density on the diagonal
         np.testing.assert_allclose(np.nansum(decay), np.nansum(tu))
-        # all but r2 D2 Dz are within 1 ulp
+        # all but r2 D2 Dz are within 1 ulp, likely due to numerical precision
         np.testing.assert_array_almost_equal_nulp(
             np.nansum(decay), np.nansum(tu), nulp=2
         )

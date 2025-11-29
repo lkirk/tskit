@@ -3495,23 +3495,21 @@ tsk_treeseq_two_locus_branch_decay_stat(const tsk_treeseq_t *self, tsk_size_t st
     tsk_size_t num_sample_sets, const tsk_size_t *sample_set_sizes,
     const tsk_id_t *sample_sets, tsk_size_t result_dim, general_stat_func_t *f,
     sample_count_stat_params_t *f_params, const double *bins, tsk_size_t num_bins,
-    double *result)
+    const double *restrict breakpoints, double *result, tsk_size_t *bincount)
 {
     int ret = 0;
-    const double *restrict breakpoints = self->breakpoints;
     const tsk_size_t num_nodes = self->tables->nodes.num_rows;
     interval_t bounds, ivl_l, ivl_r;
     iter_state l_state, r_state;
     double *result_tmp = NULL, *result_row;
     tsk_bitset_t node_samples, sample_sets_bits;
-    tsk_size_t i, j, k, bin_l, bin_r, *bincount = NULL, *bincount_row;
+    tsk_size_t i, j, k, bin_l, bin_r, *bincount_row;
 
     tsk_memset(&sample_sets_bits, 0, sizeof(sample_sets_bits));
     tsk_memset(&node_samples, 0, sizeof(node_samples));
     tsk_memset(&l_state, 0, sizeof(l_state));
     tsk_memset(&r_state, 0, sizeof(r_state));
     result_tmp = tsk_malloc(result_dim * sizeof(*result_tmp));
-    bincount = tsk_calloc(result_dim * (num_bins - 1), sizeof(*bincount));
     if (result_tmp == NULL) {
         ret = tsk_trace_error(TSK_ERR_NO_MEMORY);
         goto out;
@@ -3549,12 +3547,15 @@ tsk_treeseq_two_locus_branch_decay_stat(const tsk_treeseq_t *self, tsk_size_t st
         }
         for (j = i; j < self->num_trees; j++) {
             ivl_r = (interval_t){ breakpoints[j], breakpoints[j + 1] };
-            bounds = (interval_t){ fmax(0, ivl_r.left - ivl_l.right),
+            bounds = (interval_t){ fmax(bins[0], ivl_r.left - ivl_l.right),
                 fmin(bins[num_bins - 1], ivl_r.right - ivl_l.left) };
-            bin_l = tsk_search_sorted(bins + 1, num_bins - 1, bounds.left);
-            bin_r = tsk_search_sorted(bins + 1, num_bins - 1, bounds.right);
             if (bounds.left > bins[num_bins - 1] || bounds.right < bins[0]) {
                 continue;
+            }
+            bin_l = tsk_search_sorted(bins + 1, num_bins - 1, bounds.left);
+            bin_r = tsk_search_sorted(bins + 1, num_bins - 1, bounds.right);
+            if (bin_l + 1 <= bin_r && bins[bin_l + 1] == bounds.left) {
+                bin_l += 1;
             }
             ret = advance_collect_edges(&r_state, (tsk_id_t) j);
             if (ret != 0) {
@@ -3569,21 +3570,20 @@ tsk_treeseq_two_locus_branch_decay_stat(const tsk_treeseq_t *self, tsk_size_t st
                 result_row = GET_2D_ROW(result, result_dim, bin_l);
                 bincount_row = GET_2D_ROW(bincount, result_dim, bin_l);
                 for (k = 0; k < result_dim; k++) {
-                    // TODO: nansum??
-                    result_row[k] += integrate_stat_over_bin(
+                    double val = integrate_stat_over_bin(
                         ivl_l, ivl_r, bins[bin_l], bins[bin_l + 1], result_tmp[k]);
+                    if (tsk_isnan(val)) {
+                        continue;
+                    }
+                    result_row[k] += val;
                     bincount_row[k] += 1;
                 }
                 bin_l++;
             } while (bin_l <= bin_r);
         }
     }
-    for (i = 0; i < (num_bins - 1) * result_dim; i++) {
-        result[i] /= bincount[i];
-    }
 out:
     tsk_safe_free(result_tmp);
-    tsk_safe_free(bincount);
     iter_state_free(&l_state);
     iter_state_free(&r_state);
     tsk_bitset_free(&node_samples);
@@ -3596,7 +3596,8 @@ tsk_treeseq_two_locus_site_decay_stat(const tsk_treeseq_t *self, tsk_size_t stat
     tsk_size_t num_sample_sets, const tsk_size_t *sample_set_sizes,
     const tsk_id_t *sample_sets, tsk_size_t result_dim, general_stat_func_t *f,
     sample_count_stat_params_t *f_params, norm_func_t *norm_f, const double *bins,
-    tsk_size_t num_bins, tsk_flags_t options, double *result)
+    tsk_size_t num_bins, const double *restrict sites_position, tsk_flags_t options,
+    double *result, tsk_size_t *bincount)
 {
     int ret = 0;
     tsk_bitset_t allele_samples, allele_sample_sets;
@@ -3605,9 +3606,7 @@ tsk_treeseq_two_locus_site_decay_stat(const tsk_treeseq_t *self, tsk_size_t stat
     tsk_size_t i, j, k, bin, n_sites, *bincount_row;
     double dist, *result_row, *result_tmp = NULL;
     const tsk_size_t num_samples = self->num_samples;
-    const double *restrict site_position = self->tables->sites.position;
-    tsk_size_t *bincount = NULL, *num_alleles = NULL, *site_offsets = NULL,
-               *allele_counts = NULL;
+    tsk_size_t *num_alleles = NULL, *site_offsets = NULL, *allele_counts = NULL;
     tsk_size_t max_ss_size = 0, max_alleles = 0, n_alleles = 0;
     two_locus_work_t work;
 
@@ -3625,7 +3624,6 @@ tsk_treeseq_two_locus_site_decay_stat(const tsk_treeseq_t *self, tsk_size_t stat
     num_alleles = tsk_malloc(n_sites * sizeof(*num_alleles));
     site_offsets = tsk_malloc(n_sites * sizeof(*site_offsets));
     result_tmp = tsk_malloc(result_dim * sizeof(*result_tmp));
-    bincount = tsk_calloc(result_dim * (num_bins - 1), sizeof(*bincount));
     if (num_alleles == NULL || site_offsets == NULL || result_tmp == NULL
         || bincount == NULL) {
         ret = tsk_trace_error(TSK_ERR_NO_MEMORY);
@@ -3669,15 +3667,15 @@ tsk_treeseq_two_locus_site_decay_stat(const tsk_treeseq_t *self, tsk_size_t stat
         sample_sets, self->sample_index_map, &allele_sample_sets, allele_counts);
     for (i = 0; i < n_sites; i++) {
         for (j = i + 1; j < n_sites; j++) {
-            dist = site_position[j] - site_position[i];
-            if (dist > bins[num_bins - 1]) {
+            dist = sites_position[j] - sites_position[i];
+            if (dist >= bins[num_bins - 1]) { //  right open
                 break;
             }
-            // TODO: Very left interval is closed?
-            if (dist < bins[0]) {
+            if (dist < bins[0]) { // left closed
                 continue;
             }
-            bin = tsk_search_sorted(bins + 1, num_bins - 1, dist);
+            bin = tsk_search_sorted(bins, num_bins, dist);
+            bin = bins[bin] > dist ? bin - 1 : bin; // left closed intervals
             result_row = GET_2D_ROW(result, result_dim, bin);
             bincount_row = GET_2D_ROW(bincount, result_dim, bin);
             if (num_alleles[i] == 2 && num_alleles[j] == 2) {
@@ -3705,12 +3703,8 @@ tsk_treeseq_two_locus_site_decay_stat(const tsk_treeseq_t *self, tsk_size_t stat
             tsk_memset(result_tmp, 0, sizeof(*result_tmp) * result_dim);
         }
     }
-    for (i = 0; i < (num_bins - 1) * result_dim; i++) {
-        result[i] /= bincount[i];
-    }
 out:
     tsk_safe_free(sites);
-    tsk_safe_free(bincount);
     tsk_safe_free(result_tmp);
     tsk_safe_free(num_alleles);
     tsk_safe_free(site_offsets);
@@ -3721,12 +3715,15 @@ out:
     return ret;
 }
 
+// In two_locus_decay_stat, we specify positions. These can be site positions or tree
+// breakpoints. We pass them in at this level so that we can convert their overall
+// positions using a recombination map if we'd like.
 static int
 tsk_treeseq_two_locus_decay_stat(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
     tsk_size_t result_dim, const tsk_id_t *set_indexes, general_stat_func_t *f,
-    norm_func_t *norm_f, const double *bins, tsk_size_t num_bins, tsk_flags_t options,
-    double *result)
+    norm_func_t *norm_f, const double *bins, tsk_size_t num_bins,
+    const double *positions, tsk_flags_t options, double *result, tsk_size_t *bincount)
 {
     int ret = 0;
     bool stat_site = !!(options & TSK_STAT_SITE);
@@ -3763,11 +3760,11 @@ tsk_treeseq_two_locus_decay_stat(const tsk_treeseq_t *self, tsk_size_t num_sampl
     if (stat_site) {
         ret = tsk_treeseq_two_locus_site_decay_stat(self, state_dim, num_sample_sets,
             sample_set_sizes, sample_sets, result_dim, f, &f_params, norm_f, bins,
-            num_bins, options, result);
+            num_bins, positions, options, result, bincount);
     } else if (stat_branch) {
         ret = tsk_treeseq_two_locus_branch_decay_stat(self, state_dim, num_sample_sets,
             sample_set_sizes, sample_sets, result_dim, f, &f_params, bins, num_bins,
-            result);
+            positions, result, bincount);
         goto out;
     } else {
         ret = TSK_ERR_UNSUPPORTED_STAT_MODE;
@@ -4629,12 +4626,13 @@ tsk_treeseq_D(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
 int
 tsk_treeseq_D_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
-    tsk_size_t num_bins, tsk_flags_t options, double *result)
+    tsk_size_t num_bins, const double *positions, tsk_flags_t options, double *result,
+    tsk_size_t *bincount)
 {
     options |= TSK_STAT_POLARISED; // TODO: allow user to pick?
     return tsk_treeseq_two_locus_decay_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_sample_sets, NULL, D_summary_func, norm_total_weighted, bins,
-        num_bins, options, result);
+        num_bins, positions, options, result, bincount);
 }
 
 static int
@@ -4678,11 +4676,12 @@ tsk_treeseq_D2(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
 int
 tsk_treeseq_D2_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
-    tsk_size_t num_bins, tsk_flags_t options, double *result)
+    tsk_size_t num_bins, const double *positions, tsk_flags_t options, double *result,
+    tsk_size_t *bincount)
 {
     return tsk_treeseq_two_locus_decay_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_sample_sets, NULL, D2_summary_func, norm_total_weighted, bins,
-        num_bins, options, result);
+        num_bins, positions, options, result, bincount);
 }
 
 static int
@@ -4727,11 +4726,12 @@ tsk_treeseq_r2(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
 int
 tsk_treeseq_r2_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
-    tsk_size_t num_bins, tsk_flags_t options, double *result)
+    tsk_size_t num_bins, const double *positions, tsk_flags_t options, double *result,
+    tsk_size_t *bincount)
 {
     return tsk_treeseq_two_locus_decay_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_sample_sets, NULL, r2_summary_func, norm_hap_weighted, bins,
-        num_bins, options, result);
+        num_bins, positions, options, result, bincount);
 }
 
 static int
@@ -4781,12 +4781,13 @@ tsk_treeseq_D_prime(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
 int
 tsk_treeseq_D_prime_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
-    tsk_size_t num_bins, tsk_flags_t options, double *result)
+    tsk_size_t num_bins, const double *positions, tsk_flags_t options, double *result,
+    tsk_size_t *bincount)
 {
     options |= TSK_STAT_POLARISED;
     return tsk_treeseq_two_locus_decay_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_sample_sets, NULL, D_prime_summary_func, norm_total_weighted,
-        bins, num_bins, options, result);
+        bins, num_bins, positions, options, result, bincount);
 }
 
 static int
@@ -4833,12 +4834,13 @@ tsk_treeseq_r(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
 int
 tsk_treeseq_r_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
-    tsk_size_t num_bins, tsk_flags_t options, double *result)
+    tsk_size_t num_bins, const double *positions, tsk_flags_t options, double *result,
+    tsk_size_t *bincount)
 {
     options |= TSK_STAT_POLARISED;
     return tsk_treeseq_two_locus_decay_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_sample_sets, NULL, r_summary_func, norm_total_weighted, bins,
-        num_bins, options, result);
+        num_bins, positions, options, result, bincount);
 }
 
 static int
@@ -4883,11 +4885,12 @@ tsk_treeseq_Dz(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
 int
 tsk_treeseq_Dz_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
-    tsk_size_t num_bins, tsk_flags_t options, double *result)
+    tsk_size_t num_bins, const double *positions, tsk_flags_t options, double *result,
+    tsk_size_t *bincount)
 {
     return tsk_treeseq_two_locus_decay_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_sample_sets, NULL, Dz_summary_func, norm_total_weighted, bins,
-        num_bins, options, result);
+        num_bins, positions, options, result, bincount);
 }
 
 static int
@@ -4929,11 +4932,12 @@ tsk_treeseq_pi2(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
 int
 tsk_treeseq_pi2_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
-    tsk_size_t num_bins, tsk_flags_t options, double *result)
+    tsk_size_t num_bins, const double *positions, tsk_flags_t options, double *result,
+    tsk_size_t *bincount)
 {
     return tsk_treeseq_two_locus_decay_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_sample_sets, NULL, pi2_summary_func, norm_total_weighted, bins,
-        num_bins, options, result);
+        num_bins, positions, options, result, bincount);
 }
 
 static int
@@ -4976,11 +4980,12 @@ tsk_treeseq_D2_unbiased(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
 int
 tsk_treeseq_D2_unbiased_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
-    tsk_size_t num_bins, tsk_flags_t options, double *result)
+    tsk_size_t num_bins, const double *positions, tsk_flags_t options, double *result,
+    tsk_size_t *bincount)
 {
     return tsk_treeseq_two_locus_decay_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_sample_sets, NULL, D2_unbiased_summary_func,
-        norm_total_weighted, bins, num_bins, options, result);
+        norm_total_weighted, bins, num_bins, positions, options, result, bincount);
 }
 
 static int
@@ -5024,11 +5029,12 @@ tsk_treeseq_Dz_unbiased(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
 int
 tsk_treeseq_Dz_unbiased_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
-    tsk_size_t num_bins, tsk_flags_t options, double *result)
+    tsk_size_t num_bins, const double *positions, tsk_flags_t options, double *result,
+    tsk_size_t *bincount)
 {
     return tsk_treeseq_two_locus_decay_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_sample_sets, NULL, Dz_unbiased_summary_func,
-        norm_total_weighted, bins, num_bins, options, result);
+        norm_total_weighted, bins, num_bins, positions, options, result, bincount);
 }
 
 static int
@@ -5072,11 +5078,12 @@ tsk_treeseq_pi2_unbiased(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
 int
 tsk_treeseq_pi2_unbiased_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets, const double *bins,
-    tsk_size_t num_bins, tsk_flags_t options, double *result)
+    tsk_size_t num_bins, const double *positions, tsk_flags_t options, double *result,
+    tsk_size_t *bincount)
 {
     return tsk_treeseq_two_locus_decay_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_sample_sets, NULL, pi2_unbiased_summary_func,
-        norm_total_weighted, bins, num_bins, options, result);
+        norm_total_weighted, bins, num_bins, positions, options, result, bincount);
 }
 
 /***********************************
@@ -5459,7 +5466,8 @@ int
 tsk_treeseq_D2_ij_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
     tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, const double *bins,
-    tsk_size_t num_bins, tsk_flags_t options, double *result)
+    tsk_size_t num_bins, const double *positions, tsk_flags_t options, double *result,
+    tsk_size_t *bincount)
 {
     int ret = 0;
     ret = check_sample_stat_inputs(num_sample_sets, 2, num_index_tuples, index_tuples);
@@ -5468,7 +5476,7 @@ tsk_treeseq_D2_ij_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     }
     ret = tsk_treeseq_two_locus_decay_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_index_tuples, index_tuples, D2_ij_summary_func,
-        norm_total_weighted, bins, num_bins, options, result);
+        norm_total_weighted, bins, num_bins, positions, options, result, bincount);
 out:
     return ret;
 }
@@ -5551,7 +5559,8 @@ int
 tsk_treeseq_D2_ij_unbiased_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
     tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, const double *bins,
-    tsk_size_t num_bins, tsk_flags_t options, double *result)
+    tsk_size_t num_bins, const double *positions, tsk_flags_t options, double *result,
+    tsk_size_t *bincount)
 {
     int ret = 0;
     ret = check_sample_stat_inputs(num_sample_sets, 2, num_index_tuples, index_tuples);
@@ -5560,7 +5569,7 @@ tsk_treeseq_D2_ij_unbiased_decay(const tsk_treeseq_t *self, tsk_size_t num_sampl
     }
     ret = tsk_treeseq_two_locus_decay_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_index_tuples, index_tuples, D2_ij_unbiased_summary_func,
-        norm_total_weighted, bins, num_bins, options, result);
+        norm_total_weighted, bins, num_bins, positions, options, result, bincount);
 out:
     return ret;
 }
@@ -5629,7 +5638,8 @@ int
 tsk_treeseq_r2_ij_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     const tsk_size_t *sample_set_sizes, const tsk_id_t *sample_sets,
     tsk_size_t num_index_tuples, const tsk_id_t *index_tuples, const double *bins,
-    tsk_size_t num_bins, tsk_flags_t options, double *result)
+    tsk_size_t num_bins, const double *positions, tsk_flags_t options, double *result,
+    tsk_size_t *bincount)
 {
     int ret = 0;
     ret = check_sample_stat_inputs(num_sample_sets, 2, num_index_tuples, index_tuples);
@@ -5638,7 +5648,7 @@ tsk_treeseq_r2_ij_decay(const tsk_treeseq_t *self, tsk_size_t num_sample_sets,
     }
     ret = tsk_treeseq_two_locus_decay_stat(self, num_sample_sets, sample_set_sizes,
         sample_sets, num_index_tuples, index_tuples, r2_ij_summary_func,
-        norm_hap_weighted_ij, bins, num_bins, options, result);
+        norm_hap_weighted_ij, bins, num_bins, positions, options, result, bincount);
 out:
     return ret;
 }

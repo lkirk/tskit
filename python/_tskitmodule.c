@@ -996,6 +996,16 @@ float64_array_converter(PyObject *py_obj, PyArrayObject **array_out)
     return array_converter(NPY_FLOAT64, py_obj, array_out);
 }
 
+static int
+optional_float64_array_converter(PyObject *py_obj, PyArrayObject **array_out)
+{
+    if (py_obj != Py_None) {
+        return array_converter(NPY_FLOAT64, py_obj, array_out);
+    }
+    *array_out = (PyArrayObject *) Py_None;
+    return 1;
+}
+
 /* Note: it doesn't seem to be possible to cast pointers to the actual
  * table functions to this type because the first argument must be a
  * void *, so the simplest option is to put in a small shim that
@@ -8111,21 +8121,64 @@ TreeSequence_r2_ij_matrix(TreeSequence *self, PyObject *args, PyObject *kwds)
     return TreeSequence_k_way_ld_matrix(self, args, kwds, 2, tsk_treeseq_r2_ij);
 }
 
+static int
+parse_decay_positions(const tsk_treeseq_t *ts, PyArrayObject *positions_array,
+    tsk_flags_t options, const double **out)
+{
+    bool stat_site, stat_branch;
+    tsk_size_t positions_len;
+    stat_site = !!(options & TSK_STAT_SITE);
+    stat_branch = !!(options & TSK_STAT_BRANCH);
+
+    if (!(stat_site || stat_branch)) {
+        return 0; // mode validation happens later, out as NULL will be fine
+    }
+
+    if ((PyObject *) positions_array == Py_None) {
+        *out = stat_site ? ts->tables->sites.position : ts->breakpoints;
+    } else {
+        if (PyArray_NDIM(positions_array) != 1) {
+            PyErr_Format(PyExc_ValueError, "positions must be a 1d array.");
+            return 1;
+        }
+        positions_len = PyArray_DIM(positions_array, 0);
+        if (stat_site && (ts->tables->sites.num_rows != positions_len)) {
+            PyErr_Format(PyExc_ValueError,
+                "site positions must contain one element per site "
+                "(want a length %lu array).",
+                ts->tables->sites.num_rows);
+            return 1;
+        } else if (stat_branch && (ts->num_trees + 1 != positions_len)) {
+            PyErr_Format(PyExc_ValueError,
+                "site positions must contain one element per tree breakpoint"
+                "(want a length %lu array).",
+                ts->num_trees + 1);
+            return 1;
+        }
+        *out = PyArray_DATA(positions_array);
+    }
+    return 0;
+}
+
 static PyObject *
 TreeSequence_ld_decay(TreeSequence *self, PyObject *args, PyObject *kwds,
     two_locus_decay_stat_method *method)
 {
     PyObject *ret = NULL;
-    static char *kwlist[] = { "sample_set_sizes", "sample_sets", "bins", "mode", NULL };
+    static char *kwlist[]
+        = { "sample_set_sizes", "sample_sets", "bins", "positions", "mode", NULL };
     PyObject *sample_sets = NULL;
     PyObject *sample_set_sizes = NULL;
     PyArrayObject *sample_sets_array = NULL;
     PyArrayObject *sample_set_sizes_array = NULL;
     PyArrayObject *bins = NULL;
-    PyArrayObject *result_matrix = NULL;
+    PyArrayObject *positions_array = NULL;
+    PyArrayObject *result_stat_matrix = NULL;
+    PyArrayObject *result_bincount_matrix = NULL;
     npy_intp num_bins;
     npy_intp result_dim[2];
     tsk_size_t num_sample_sets;
+    const double *positions = NULL;
     char *mode = NULL;
     tsk_flags_t options = 0;
     int err;
@@ -8133,8 +8186,9 @@ TreeSequence_ld_decay(TreeSequence *self, PyObject *args, PyObject *kwds,
     if (TreeSequence_check_state(self) != 0) {
         goto out;
     }
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOO&|s", kwlist, &sample_set_sizes,
-            &sample_sets, &float64_array_converter, &bins, &mode)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOO&|O&s", kwlist, &sample_set_sizes,
+            &sample_sets, &float64_array_converter, &bins,
+            &optional_float64_array_converter, &positions_array, &mode)) {
         goto out;
     }
     if (parse_stats_mode(mode, &options) != 0) {
@@ -8145,11 +8199,21 @@ TreeSequence_ld_decay(TreeSequence *self, PyObject *args, PyObject *kwds,
         != 0) {
         goto out;
     }
+    if (parse_decay_positions(self->tree_sequence, positions_array, options, &positions)
+        != 0) {
+        goto out;
+    }
     num_bins = PyArray_DIM(bins, 0);
     result_dim[0] = num_bins - 1;
     result_dim[1] = num_sample_sets;
-    result_matrix = (PyArrayObject *) PyArray_ZEROS(2, result_dim, NPY_FLOAT64, 0);
-    if (result_matrix == NULL) {
+    result_stat_matrix = (PyArrayObject *) PyArray_ZEROS(2, result_dim, NPY_FLOAT64, 0);
+    if (result_stat_matrix == NULL) {
+        PyErr_NoMemory();
+        goto out;
+    }
+    result_bincount_matrix
+        = (PyArrayObject *) PyArray_ZEROS(2, result_dim, NPY_UINT64, 0);
+    if (result_bincount_matrix == NULL) {
         PyErr_NoMemory();
         goto out;
     }
@@ -8157,7 +8221,7 @@ TreeSequence_ld_decay(TreeSequence *self, PyObject *args, PyObject *kwds,
     Py_BEGIN_ALLOW_THREADS
     err = method(self->tree_sequence, num_sample_sets,
         PyArray_DATA(sample_set_sizes_array), PyArray_DATA(sample_sets_array),
-                 PyArray_DATA(bins), num_bins, options, PyArray_DATA(result_matrix));
+                 PyArray_DATA(bins), num_bins, positions, options, PyArray_DATA(result_stat_matrix), PyArray_DATA(result_bincount_matrix));
     Py_END_ALLOW_THREADS
         // clang-format on
         if (err != 0)
@@ -8165,13 +8229,19 @@ TreeSequence_ld_decay(TreeSequence *self, PyObject *args, PyObject *kwds,
         handle_library_error(err);
         goto out;
     }
-    ret = (PyObject *) result_matrix;
-    result_matrix = NULL;
+    // Return a tuple of matrixes: (stat, count)
+    ret = PyTuple_New(2);
+    PyTuple_SET_ITEM(ret, 0, (PyObject *) result_stat_matrix);
+    PyTuple_SET_ITEM(ret, 1, (PyObject *) result_bincount_matrix);
+    result_stat_matrix = NULL;
+    result_bincount_matrix = NULL;
 out:
     Py_XDECREF(bins);
+    Py_XDECREF(positions_array);
     Py_XDECREF(sample_sets_array);
     Py_XDECREF(sample_set_sizes_array);
-    Py_XDECREF(result_matrix);
+    Py_XDECREF(result_stat_matrix);
+    Py_XDECREF(result_bincount_matrix);
     return ret;
 }
 
@@ -8240,14 +8310,16 @@ TreeSequence_k_way_ld_decay(TreeSequence *self, PyObject *args, PyObject *kwds,
     npy_intp tuple_size, k_way_two_locus_decay_stat_method *method)
 {
     PyObject *ret = NULL;
-    static char *kwlist[]
-        = { "sample_set_sizes", "sample_sets", "indexes", "bins", "mode", NULL };
+    static char *kwlist[] = { "sample_set_sizes", "sample_sets", "indexes", "bins",
+        "positions", "mode", NULL };
     PyObject *sample_sets = NULL;
     PyObject *sample_set_sizes = NULL;
     PyObject *indexes = NULL;
     PyArrayObject *bins = NULL;
+    PyArrayObject *positions_array = NULL;
     PyArrayObject *indexes_array = NULL;
-    PyArrayObject *result_matrix = NULL;
+    PyArrayObject *result_stat_matrix = NULL;
+    PyArrayObject *result_bincount_matrix = NULL;
     PyArrayObject *sample_sets_array = NULL;
     PyArrayObject *sample_set_sizes_array = NULL;
     npy_intp num_bins;
@@ -8255,6 +8327,7 @@ TreeSequence_k_way_ld_decay(TreeSequence *self, PyObject *args, PyObject *kwds,
     npy_intp result_dim[2];
     tsk_size_t num_sample_sets;
     tsk_size_t num_set_index_tuples;
+    const double *positions = NULL;
     char *mode = NULL;
     tsk_flags_t options = 0;
     int err;
@@ -8262,8 +8335,9 @@ TreeSequence_k_way_ld_decay(TreeSequence *self, PyObject *args, PyObject *kwds,
     if (TreeSequence_check_state(self) != 0) {
         goto out;
     }
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOOO&|s", kwlist, &sample_set_sizes,
-            &sample_sets, &indexes, &float64_array_converter, &bins, &mode)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOOO&|O&s", kwlist, &sample_set_sizes,
+            &sample_sets, &indexes, &float64_array_converter, &bins,
+            &optional_float64_array_converter, &positions_array, &mode)) {
         goto out;
     }
     if (parse_stats_mode(mode, &options) != 0) {
@@ -8271,6 +8345,10 @@ TreeSequence_k_way_ld_decay(TreeSequence *self, PyObject *args, PyObject *kwds,
     }
     if (parse_sample_sets(sample_set_sizes, &sample_set_sizes_array, sample_sets,
             &sample_sets_array, &num_sample_sets)
+        != 0) {
+        goto out;
+    }
+    if (parse_decay_positions(self->tree_sequence, positions_array, options, &positions)
         != 0) {
         goto out;
     }
@@ -8289,8 +8367,14 @@ TreeSequence_k_way_ld_decay(TreeSequence *self, PyObject *args, PyObject *kwds,
     num_bins = PyArray_DIM(bins, 0);
     result_dim[0] = num_bins - 1;
     result_dim[1] = num_set_index_tuples;
-    result_matrix = (PyArrayObject *) PyArray_ZEROS(2, result_dim, NPY_FLOAT64, 0);
-    if (result_matrix == NULL) {
+    result_stat_matrix = (PyArrayObject *) PyArray_ZEROS(2, result_dim, NPY_FLOAT64, 0);
+    if (result_stat_matrix == NULL) {
+        PyErr_NoMemory();
+        goto out;
+    }
+    result_bincount_matrix
+        = (PyArrayObject *) PyArray_ZEROS(2, result_dim, NPY_UINT64, 0);
+    if (result_bincount_matrix == NULL) {
         PyErr_NoMemory();
         goto out;
     }
@@ -8298,7 +8382,7 @@ TreeSequence_k_way_ld_decay(TreeSequence *self, PyObject *args, PyObject *kwds,
     Py_BEGIN_ALLOW_THREADS
     err = method(self->tree_sequence, num_sample_sets,
 		 PyArray_DATA(sample_set_sizes_array), PyArray_DATA(sample_sets_array), num_set_index_tuples, 
-		 PyArray_DATA(indexes_array), PyArray_DATA(bins), num_bins, options, PyArray_DATA(result_matrix));
+                 PyArray_DATA(indexes_array), PyArray_DATA(bins), num_bins, positions, options, PyArray_DATA(result_stat_matrix), PyArray_DATA(result_bincount_matrix));
     Py_END_ALLOW_THREADS
         // clang-format on
         if (err != 0)
@@ -8306,14 +8390,20 @@ TreeSequence_k_way_ld_decay(TreeSequence *self, PyObject *args, PyObject *kwds,
         handle_library_error(err);
         goto out;
     }
-    ret = (PyObject *) result_matrix;
-    result_matrix = NULL;
+    // Return a tuple of matrixes: (stat, count)
+    ret = PyTuple_New(2);
+    PyTuple_SET_ITEM(ret, 0, (PyObject *) result_stat_matrix);
+    PyTuple_SET_ITEM(ret, 1, (PyObject *) result_bincount_matrix);
+    result_stat_matrix = NULL;
+    result_bincount_matrix = NULL;
 out:
     Py_XDECREF(bins);
     Py_XDECREF(indexes_array);
+    Py_XDECREF(positions_array);
     Py_XDECREF(sample_sets_array);
     Py_XDECREF(sample_set_sizes_array);
-    Py_XDECREF(result_matrix);
+    Py_XDECREF(result_stat_matrix);
+    Py_XDECREF(result_bincount_matrix);
     return ret;
 }
 
@@ -10818,8 +10908,8 @@ static PyMethodDef Tree_methods[] = {
     { .ml_name = "map_mutations",
         .ml_meth = (PyCFunction) Tree_map_mutations,
         .ml_flags = METH_VARARGS | METH_KEYWORDS,
-        .ml_doc
-        = "Returns a parsimonious state reconstruction for the specified genotypes." },
+        .ml_doc = "Returns a parsimonious state reconstruction for the specified "
+                  "genotypes." },
     { .ml_name = "equals",
         .ml_meth = (PyCFunction) Tree_equals,
         .ml_flags = METH_VARARGS,
@@ -12249,9 +12339,8 @@ PyInit__tskit(void)
         return NULL;
     }
     Py_INCREF(&LsHmmType);
-    PyModule_AddObject(module, "LsHmm", (PyObject *) &LsHmmType);
-
-    /* IdentitySegments type */
+    PyModule_AddObject(
+        module, "LsHmm", (PyObject *) &LsHmmType); /* IdentitySegments type */
     if (PyType_Ready(&IdentitySegmentsType) < 0) {
         return NULL;
     }

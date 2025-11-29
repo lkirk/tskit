@@ -8352,6 +8352,8 @@ class TreeSequence:
         ll_method,
         sample_sets,
         bins,
+        return_counts,
+        ratemap=None,
         mode=None,
     ):
         if sample_sets is None:
@@ -8363,16 +8365,28 @@ class TreeSequence:
         )
         if np.any(sample_set_sizes == 0):
             raise ValueError("Sample sets must contain at least one element")
-
         flattened = util.safe_np_int_cast(np.hstack(sample_sets), np.int32)
-        result = ll_method(sample_set_sizes, flattened, bins, mode)
+        positions = None
+        if ratemap is not None:
+            # rate in cM
+            if mode is None or mode == "site":
+                positions = ratemap.get_cumulative_mass(self.sites_position) * 100
+            elif mode == "branch":
+                positions = (
+                    ratemap.get_cumulative_mass(self.breakpoints(as_array=True)) * 100
+                )
+        result, counts = ll_method(sample_set_sizes, flattened, bins, positions, mode)
         if drop_dimension:
             result = result.reshape(result.shape[0])
+            counts = counts.reshape(counts.shape[0])
         else:
             # Orient the data so that the first dimension is the sample set.
             result = result.swapaxes(0, 1)
-
-        return result
+            counts = counts.swapaxes(0, 1)
+        if return_counts:
+            return result, counts
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return result / counts
 
     def __k_way_two_locus_sample_set_decay_stat(
         self,
@@ -8380,7 +8394,9 @@ class TreeSequence:
         k,
         sample_sets,
         bins,
+        return_counts,
         indexes=None,
+        ratemap=None,
         mode=None,
     ):
         sample_set_sizes = np.array(
@@ -8399,19 +8415,34 @@ class TreeSequence:
                 "Indexes must be convertable to a 2D numpy array with {} "
                 "columns".format(k)
             )
-        result = ll_method(
+        positions = None
+        if ratemap is not None:
+            # rate in cM
+            if mode is None or mode == "site":
+                positions = ratemap.get_cumulative_mass(self.sites_position) * 100
+            elif mode == "branch":
+                positions = (
+                    ratemap.get_cumulative_mass(self.breakpoints(as_array=True)) * 100
+                )
+        result, counts = ll_method(
             sample_set_sizes,
             flattened,
             indexes,
             bins,
+            positions,
             mode,
         )
         if drop_dimension:
             result = result.reshape(result.shape[0])
+            counts = counts.reshape(counts.shape[0])
         else:
             # Orient the data so that the first dimension is the sample set.
             result = result.swapaxes(0, 1)
-        return result
+            counts = counts.swapaxes(0, 1)
+        if return_counts:
+            return result, counts
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return result / counts
 
     def __k_way_weighted_stat(
         self,
@@ -10962,7 +10993,16 @@ class TreeSequence:
             stat_func, sample_sets, sites=sites, positions=positions, mode=mode
         )
 
-    def ld_decay(self, bins, sample_sets=None, mode="site", stat="r2", indexes=None):
+    def ld_decay(
+        self,
+        bins,
+        sample_sets=None,
+        mode="site",
+        stat="r2",
+        indexes=None,
+        ratemap=None,
+        return_counts=False,
+    ):
         one_way_stats = {
             "D": self._ll_tree_sequence.D_decay,
             "D2": self._ll_tree_sequence.D2_decay,
@@ -10993,13 +11033,17 @@ class TreeSequence:
                 2,
                 sample_sets,
                 bins,
+                return_counts,
                 indexes=indexes,
+                ratemap=ratemap,
                 mode=mode,
             )
         return self.__two_locus_sample_set_decay_stat(
             stat_func,
             sample_sets,
-            bins=bins,
+            bins,
+            return_counts,
+            ratemap=ratemap,
             mode=mode,
         )
 
