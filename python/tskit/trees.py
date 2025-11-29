@@ -23,6 +23,7 @@
 """
 Module responsible for managing trees and tree sequences.
 """
+
 from __future__ import annotations
 
 import base64
@@ -700,8 +701,7 @@ class Tree:
         options = 0
         if sample_counts is not None:
             warnings.warn(
-                "The sample_counts option is not supported since 0.2.4 "
-                "and is ignored",
+                "The sample_counts option is not supported since 0.2.4 and is ignored",
                 RuntimeWarning,
                 stacklevel=4,
             )
@@ -6950,7 +6950,7 @@ class TreeSequence:
             bytes_genotypes[:] = lookup[variant.genotypes]
             genotypes = bytes_genotypes.tobytes().decode()
             output.append(
-                f"SITE:\t{variant.index}\t{variant.position / m}\t0.0\t" f"{genotypes}"
+                f"SITE:\t{variant.index}\t{variant.position / m}\t0.0\t{genotypes}"
             )
         return "\n".join(output) + "\n"
 
@@ -8405,6 +8405,119 @@ class TreeSequence:
                 stat = stat[()]
         return stat
 
+    def _try_drop_dimension(self, sample_sets):
+        # First try to convert to a 1D numpy array. If we succeed, then we strip off
+        # the corresponding dimension from the output.
+        drop_dimension = False
+        try:
+            sample_sets = np.array(sample_sets, dtype=np.uint64)
+        except ValueError:
+            pass
+        else:
+            # If we've successfully converted sample_sets to a 1D numpy array
+            # of integers then drop the dimension
+            if len(sample_sets.shape) == 1:
+                sample_sets = [sample_sets]
+                drop_dimension = True
+        return sample_sets, drop_dimension
+
+    def __two_locus_sample_set_decay_stat(
+        self,
+        ll_method,
+        sample_sets,
+        bins,
+        return_counts,
+        ratemap=None,
+        mode=None,
+    ):
+        if sample_sets is None:
+            sample_sets = self.samples()
+
+        sample_sets, drop_dimension = self._try_drop_dimension(sample_sets)
+        sample_set_sizes = np.array(
+            [len(sample_set) for sample_set in sample_sets], dtype=np.uint32
+        )
+        if np.any(sample_set_sizes == 0):
+            raise ValueError("Sample sets must contain at least one element")
+        flattened = util.safe_np_int_cast(np.hstack(sample_sets), np.int32)
+        positions = None
+        if ratemap is not None:
+            # rate in cM
+            if mode is None or mode == "site":
+                positions = ratemap.get_cumulative_mass(self.sites_position) * 100
+            elif mode == "branch":
+                positions = (
+                    ratemap.get_cumulative_mass(self.breakpoints(as_array=True)) * 100
+                )
+        result, counts = ll_method(sample_set_sizes, flattened, bins, positions, mode)
+        if drop_dimension:
+            result = result.reshape(result.shape[0])
+            counts = counts.reshape(counts.shape[0])
+        else:
+            # Orient the data so that the first dimension is the sample set.
+            result = result.swapaxes(0, 1)
+            counts = counts.swapaxes(0, 1)
+        if return_counts:
+            return result, counts
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return result / counts
+
+    def __k_way_two_locus_sample_set_decay_stat(
+        self,
+        ll_method,
+        k,
+        sample_sets,
+        bins,
+        return_counts,
+        indexes=None,
+        ratemap=None,
+        mode=None,
+    ):
+        sample_set_sizes = np.array(
+            [len(sample_set) for sample_set in sample_sets], dtype=np.uint32
+        )
+        if np.any(sample_set_sizes == 0):
+            raise ValueError("Sample sets must contain at least one element")
+        flattened = util.safe_np_int_cast(np.hstack(sample_sets), np.int32)
+        drop_dimension = False
+        indexes = util.safe_np_int_cast(indexes, np.int32)
+        if len(indexes.shape) == 1:
+            indexes = indexes.reshape((1, indexes.shape[0]))
+            drop_dimension = True
+        if len(indexes.shape) != 2 or indexes.shape[1] != k:
+            raise ValueError(
+                "Indexes must be convertable to a 2D numpy array with {} "
+                "columns".format(k)
+            )
+        positions = None
+        if ratemap is not None:
+            # rate in cM
+            if mode is None or mode == "site":
+                positions = ratemap.get_cumulative_mass(self.sites_position) * 100
+            elif mode == "branch":
+                positions = (
+                    ratemap.get_cumulative_mass(self.breakpoints(as_array=True)) * 100
+                )
+        result, counts = ll_method(
+            sample_set_sizes,
+            flattened,
+            indexes,
+            bins,
+            positions,
+            mode,
+        )
+        if drop_dimension:
+            result = result.reshape(result.shape[0])
+            counts = counts.reshape(counts.shape[0])
+        else:
+            # Orient the data so that the first dimension is the sample set.
+            result = result.swapaxes(0, 1)
+            counts = counts.swapaxes(0, 1)
+        if return_counts:
+            return result, counts
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return result / counts
+
     def __k_way_weighted_stat(
         self,
         ll_method,
@@ -9383,9 +9496,9 @@ class TreeSequence:
         if time_windows is None:
             tree_sequence_low, tree_sequence_high = None, self
         else:
-            assert (
-                time_windows[0] < time_windows[1]
-            ), "The second argument should be larger."
+            assert time_windows[0] < time_windows[1], (
+                "The second argument should be larger."
+            )
             tree_sequence_low, tree_sequence_high = (
                 self.decapitate(time_windows[0]),
                 self.decapitate(time_windows[1]),
@@ -9453,9 +9566,9 @@ class TreeSequence:
             """
             Algorithm 9 in https://arxiv.org/pdf/2002.01387
             """
-            assert (
-                num_vectors >= rank > 0
-            ), "num_vectors should not be smaller than rank"
+            assert num_vectors >= rank > 0, (
+                "num_vectors should not be smaller than rank"
+            )
             for _ in range(depth):
                 Q = np.linalg.qr(Q)[0]
                 Q = operator(Q)
@@ -10981,6 +11094,60 @@ class TreeSequence:
 
         return self.__two_locus_sample_set_stat(
             stat_func, sample_sets, sites=sites, positions=positions, mode=mode
+        )
+
+    def ld_decay(
+        self,
+        bins,
+        sample_sets=None,
+        mode="site",
+        stat="r2",
+        indexes=None,
+        ratemap=None,
+        return_counts=False,
+    ):
+        one_way_stats = {
+            "D": self._ll_tree_sequence.D_decay,
+            "D2": self._ll_tree_sequence.D2_decay,
+            "r2": self._ll_tree_sequence.r2_decay,
+            "D_prime": self._ll_tree_sequence.D_prime_decay,
+            "r": self._ll_tree_sequence.r_decay,
+            "Dz": self._ll_tree_sequence.Dz_decay,
+            "pi2": self._ll_tree_sequence.pi2_decay,
+            "Dz_unbiased": self._ll_tree_sequence.Dz_unbiased_decay,
+            "D2_unbiased": self._ll_tree_sequence.D2_unbiased_decay,
+            "pi2_unbiased": self._ll_tree_sequence.pi2_unbiased_decay,
+        }
+        two_way_stats = {
+            "D2": self._ll_tree_sequence.D2_ij_decay,
+            "D2_unbiased": self._ll_tree_sequence.D2_ij_unbiased_decay,
+            "r2": self._ll_tree_sequence.r2_ij_decay,
+        }
+        stats = one_way_stats if indexes is None else two_way_stats
+        try:
+            stat_func = stats[stat]
+        except KeyError:
+            raise ValueError(
+                f"Unknown two-locus statistic '{stat}', we support: {list(stats.keys())}"
+            )
+        if indexes is not None:
+            return self.__k_way_two_locus_sample_set_decay_stat(
+                stat_func,
+                2,
+                sample_sets,
+                bins,
+                return_counts,
+                indexes=indexes,
+                ratemap=ratemap,
+                mode=mode,
+            )
+        return self.__two_locus_sample_set_decay_stat(
+            stat_func,
+            sample_sets,
+            bins,
+            return_counts,
+            ratemap=ratemap,
+            mode=mode,
         )
 
     def sample_nodes_by_ploidy(self, ploidy):
