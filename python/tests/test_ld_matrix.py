@@ -2063,38 +2063,36 @@ def compute_branch_stat(
         ts
         for ts in get_example_tree_sequences()
         if ts.id
-        not in {
-            "no_samples",
-            "empty_ts",
-            # We must skip these cases so that tests run in a reasonable
-            # amount of time. To get more complete testing, these filters
-            # can be commented out. (runtime ~1hr)
-            "gap_0",
-            "gap_0.1",
-            "gap_0.5",
-            "gap_0.75",
-            "n=2_m=32_rho=0",
-            "n=10_m=1_rho=0",
-            "n=10_m=1_rho=0.1",
-            "n=10_m=2_rho=0",
-            "n=10_m=2_rho=0.1",
-            "n=10_m=32_rho=0",
-            "n=10_m=32_rho=0.1",
-            "n=10_m=32_rho=0.5",
+        in {
+            # We run only these cases so that tests run in a reasonable
+            # amount of time. All examples takes ~1hr.
+            "decapitate_recomb",
+            "gap_at_end",
+            "all_nodes_samples",
+            "internal_nodes_samples",
+            "mixed_internal_leaf_samples",
+            "bottleneck_n=3_mutated",
+            "bottleneck_n=10_mutated",
+            "rev_node_order",
+            "empty_tree",
+            "n=3_m=2_rho=0.5",
+            "n=3_m=32_rho=0",
+            "n=3_m=32_rho=0.1",
+            "n=2_m=1_rho=0",
+            "n=2_m=1_rho=0.1",
+            "n=2_m=1_rho=0.5",
+            "n=2_m=2_rho=0",
+            "n=2_m=2_rho=0.1",
+            "n=2_m=2_rho=0.5",
+            "n=2_m=32_rho=0.1",
+            "n=2_m=32_rho=0.5",
+            "n=3_m=1_rho=0",
+            "n=3_m=1_rho=0.5",
+            "n=3_m=2_rho=0",
+            "n=10_m=1_rho=0.5",
+            "n=10_m=2_rho=0.5",
             # we keep one n=100 case to ensure bit arrays are working
-            "n=100_m=1_rho=0.1",
-            "n=100_m=1_rho=0.5",
-            "n=100_m=2_rho=0",
-            "n=100_m=2_rho=0.1",
-            "n=100_m=2_rho=0.5",
-            "n=100_m=32_rho=0",
-            "n=100_m=32_rho=0.1",
-            "n=100_m=32_rho=0.5",
-            "all_fields",
-            "back_mutations",
-            "multichar",
-            "multichar_no_metadata",
-            "bottleneck_n=100_mutated",
+            "n=100_m=1_rho=0",
         }
     ],
 )
@@ -2398,3 +2396,386 @@ def test_multipopulation_r2_varying_unequal_set_sizes(genotypes, sample_sets, ex
         norm_hap_weighted_ij(1, state, max(a) + 1, max(b) + 1, norm[i, j], params)
 
     np.testing.assert_allclose((result * norm).sum(), expected)
+
+
+class GeneralStatFuncs:
+    """
+    Summary functions take X, n as parameters where X is a matrix of haplotype
+    counts per sample set and n is a vector of sample set sizes. X has shape (3, k)
+    and n has shape (k, ), where k is the number of sample sets. The rows of X
+    contain haplotype counts for AB, Ab, aB (capitalized == derived).
+
+    X: shape=(3, k)
+                sample sets
+    count AB [[ #ss1, #ss2, ... ]
+    count Ab  [ #ss1, #ss2, ... ]
+    count aB  [ #ss1, #ss2, ... ]]
+
+    n: shape=(k, )
+              [ #ss1, #ss2, ... ]
+    """
+
+    @staticmethod
+    def D(X, n):
+        pAB, pAb, paB = X / n
+        pA = pAb + pAB
+        pB = paB + pAB
+        return pAB - (pA * pB)
+
+    @staticmethod
+    def D2(X, n):
+        pAB, pAb, paB = X / n
+        pA = pAb + pAB
+        pB = paB + pAB
+        return (pAB - (pA * pB)) ** 2
+
+    @staticmethod
+    def r2(X, n):
+        pAB, pAb, paB = X / n
+        pA = pAb + pAB
+        pB = paB + pAB
+        D = pAB - (pA * pB)
+        denom = pA * pB * (1 - pA) * (1 - pB)
+        with suppress_overflow_div0_warning():
+            return D**2 / denom
+
+    @staticmethod
+    def r(X, n):
+        pAB, pAb, paB = X / n
+        pA = pAb + pAB
+        pB = paB + pAB
+        D = pAB - (pA * pB)
+        denom = pA * pB * (1 - pA) * (1 - pB)
+        with suppress_overflow_div0_warning():
+            return D / np.sqrt(denom)
+
+    @staticmethod
+    def D_prime(X, n):
+        pAB, pAb, paB = X / n
+        pA = pAb + pAB
+        pB = paB + pAB
+        D = pAB - (pA * pB)
+        denom = np.vstack(
+            [
+                np.min([pA * (1 - pB), (1 - pA) * pB], axis=0),
+                np.min([pA * pB, (1 - pA) * (1 - pB)], axis=0),
+            ]
+        )
+        with suppress_overflow_div0_warning():
+            return D / denom[(D < 0).astype(int), range(len(D))]
+
+    @staticmethod
+    def Dz(X, n):
+        pAB, pAb, paB = X / n
+        pA = pAb + pAB
+        pB = paB + pAB
+        D = pAB - (pA * pB)
+        return D * (1 - 2 * pA) * (1 - 2 * pB)
+
+    @staticmethod
+    def pi2(X, n):
+        pAB, pAb, paB = X / n
+        pA = pAb + pAB
+        pB = paB + pAB
+        return pA * (1 - pA) * pB * (1 - pB)
+
+    @staticmethod
+    def D2_unbiased(X, n):
+        AB, Ab, aB = X
+        ab = n - X.sum(0)
+        return (
+            ((aB**2) * (Ab - 1) * Ab)
+            + ((ab - 1) * ab * (AB - 1) * AB)
+            - (aB * Ab * (Ab + (2 * ab * AB) - 1))
+        ) / (n * (n - 1) * (n - 2) * (n - 3))
+
+    @staticmethod
+    def Dz_unbiased(X, n):
+        AB, Ab, aB = X
+        ab = n - X.sum(0)
+        return (
+            (((AB * ab) - (Ab * aB)) * (aB + ab - AB - Ab) * (Ab + ab - AB - aB))
+            - ((AB * ab) * (AB + ab - Ab - aB - 2))
+            - ((Ab * aB) * (Ab + aB - AB - ab - 2))
+        ) / (n * (n - 1) * (n - 2) * (n - 3))
+
+    @staticmethod
+    def pi2_unbiased(X, n):
+        AB, Ab, aB = X
+        ab = n - X.sum(0)
+        return (
+            ((AB + Ab) * (aB + ab) * (AB + aB) * (Ab + ab))
+            - ((AB * ab) * (AB + ab + (3 * Ab) + (3 * aB) - 1))
+            - ((Ab * aB) * (Ab + aB + (3 * AB) + (3 * ab) - 1))
+        ) / (n * (n - 1) * (n - 2) * (n - 3))
+
+    # Two-way statistics have the _ij suffix.
+    @staticmethod
+    def r2_ij(X, n):
+        pAB, pAb, paB = X / n
+        pA = pAb + pAB
+        pB = paB + pAB
+        # keepdims preserves the output shape of (1, )
+        D2_ij = np.prod(pAB - (pA * pB), keepdims=True)
+        denom = np.prod(np.sqrt(pA * pB * (1 - pA) * (1 - pB)), keepdims=True)
+        with suppress_overflow_div0_warning():
+            return D2_ij / denom
+
+    @staticmethod
+    def D2_ij(X, n):
+        pAB, pAb, paB = X / n
+        pA = pAb + pAB
+        pB = paB + pAB
+        return np.prod(pAB - (pA * pB), keepdims=True)
+
+    @staticmethod
+    def D2_ij_unbiased(X, n):
+        AB, Ab, aB = X
+        ab = n - X.sum(0)
+        return [
+            (Ab[0] * aB[0] - AB[0] * ab[0])
+            * (Ab[1] * aB[1] - AB[1] * ab[1])
+            / (n[0] * (n[0] - 1) * n[1] * (n[1] - 1))
+        ]
+
+    @staticmethod
+    def D2_ii_ij_jj_unbiased(X, n):
+        AB, Ab, aB = X
+        ab = n - X.sum(0)
+
+        # unbiased estimator for equal sample sets
+        ii, jj = (
+            AB * (AB - 1) * ab * (ab - 1)
+            + Ab * (Ab - 1) * aB * (aB - 1)
+            - 2 * AB * Ab * aB * ab
+        ) / (n * (n - 1) * (n - 2) * (n - 3))
+        # unbiased estimator for disjoint sample sets
+        ij = (
+            (Ab[0] * aB[0] - AB[0] * ab[0])
+            * (Ab[1] * aB[1] - AB[1] * ab[1])
+            / (n[0] * (n[0] - 1) * n[1] * (n[1] - 1))
+        )
+        return [ii, ij, jj]
+
+
+class GeneralStatNormFuncs:
+    @staticmethod
+    def hap_norm(X, n, nA, nB):
+        """Stat from 1 sample set -> 1 result"""
+        return X[0] / n
+
+    @staticmethod
+    def k_way_hap_norm(X, n, nA, nB):
+        """Stat from k sample sets -> 1 result"""
+        return X[0].sum(keepdims=True) / n.sum()
+
+    @staticmethod
+    def assert_no_norm_func(*_):
+        """Normalisation is not required in branch mode and with biallelic sites."""
+        raise Exception("Normalisation function should not be called")
+
+    @classmethod
+    def choose(cls, stat, mode, ts):
+        """
+        Choose norm function based on stat, mode, presence of multiallelic sites
+        """
+        is_multiallelic = max({len(s.mutations) for s in ts.sites()}) > 1
+        match (stat, mode, is_multiallelic):
+            case ("r2", "site", True):
+                return cls.hap_norm
+            case ("r2_ij", "site", True):
+                return cls.k_way_hap_norm
+            case (_, "branch", _):  # branch stats do not need a norm func
+                return cls.assert_no_norm_func
+            case (_, _, False):  # biallelic sites should not use the norm func
+                return cls.assert_no_norm_func
+            case _:  # total_norm is default (1 / (nA * nB)). handles multi-way stats
+                return None
+
+
+@pytest.fixture(scope="module")
+def ts_10_samp_with_sites_fixture():
+    ts = tsutil.get_sim_example(
+        sample_size=10,
+        sequence_length=15,
+        recombination_rate=0.1,
+        mutation_rate=0.1,
+        seed=123,
+    )
+    assert ts.num_sites > 0, "sites are required"
+    assert ts.num_samples == 10  # Samples directly indexed in tests below
+    assert max({len(s.mutations) for s in ts.sites()}) == 1, "sites must be biallelic"
+    return ts
+
+
+@pytest.fixture(scope="module")
+def ts_multiallelic_fixture():
+    ts = msprime.sim_mutations(
+        msprime.sim_ancestry(
+            2, recombination_rate=0.1, sequence_length=100, random_seed=123
+        ),
+        rate=0.1,
+        random_seed=123,
+    )
+    # Need at least 4 samples to test unbiased statistics
+    assert ts.num_samples >= 4, "At least 4 samples required"
+    assert max({len(s.mutations) for s in ts.sites()}) > 1, (
+        "At least one multiallelic site required"
+    )
+    return ts
+
+
+@pytest.fixture(scope="module")
+def ts_no_sites_fixture():
+    ts = msprime.sim_ancestry(
+        2, recombination_rate=0.1, sequence_length=100, random_seed=123
+    )
+    assert ts.num_sites == 0
+    return ts
+
+
+@pytest.mark.parametrize("mode", ["site", "branch"])
+@pytest.mark.parametrize(
+    "ts",
+    [ts for ts in get_example_tree_sequences() if ts.id in {"no_samples", "empty_ts"}],
+)
+def test_general_empty_ts(mode, ts):
+    with pytest.raises(ValueError, match="at least one element"):
+        ts.two_locus_count_stat([ts.samples()], GeneralStatFuncs.D, 1, mode=mode)
+
+
+def test_general_no_sites(ts_no_sites_fixture):
+    ts = ts_no_sites_fixture
+    ldg = ts.two_locus_count_stat([ts.samples()], GeneralStatFuncs.D, 1)
+    np.testing.assert_array_equal(ldg, np.zeros((1, 0, 0), np.float64))
+
+
+@pytest.mark.parametrize("mode", ["site", "branch"])
+def test_general_output_dimensions(mode, ts_multiallelic_fixture):
+    ts = ts_multiallelic_fixture
+    norm_f = GeneralStatNormFuncs.choose("D", mode, ts)
+    samples = ts.samples()
+    expected_dims = dict(
+        site=(1, ts.num_sites, ts.num_sites), branch=(1, ts.num_trees, ts.num_trees)
+    )[mode]
+    result = ts.two_locus_count_stat(
+        samples, GeneralStatFuncs.D, 1, mode=mode, norm_f=norm_f
+    )
+    assert result.shape == expected_dims
+    # we expect that dims are the same with `samples` or `[samples]`
+    result = ts.two_locus_count_stat(
+        [samples], GeneralStatFuncs.D, 1, mode=mode, norm_f=norm_f
+    )
+    assert result.shape == expected_dims
+
+    expected_dims = dict(
+        site=(2, ts.num_sites, ts.num_sites), branch=(2, ts.num_trees, ts.num_trees)
+    )[mode]
+    result = ts.two_locus_count_stat(
+        [samples, samples], GeneralStatFuncs.D, 2, mode=mode, norm_f=norm_f
+    )
+    assert result.shape == expected_dims
+
+
+@pytest.mark.parametrize("mode", ["site", "branch"])
+@pytest.mark.parametrize("stat", SUMMARY_FUNCS.keys())
+def test_general_one_way_multi_sample_set(mode, stat, ts_10_samp_with_sites_fixture):
+    ts = ts_10_samp_with_sites_fixture
+    norm_f = GeneralStatNormFuncs.choose(stat, mode, ts)
+    sample_sets = [ts.samples()[0:5], ts.samples()[5:10]]
+    ldg = ts.two_locus_count_stat(
+        sample_sets,
+        getattr(GeneralStatFuncs, stat),
+        2,
+        norm_f=norm_f,
+        mode=mode,
+    )
+    ld = ts.ld_matrix(sample_sets=sample_sets, stat=stat, mode=mode)
+    np.testing.assert_array_almost_equal(ldg, ld)
+
+
+@pytest.mark.parametrize("mode", ["site", "branch"])
+@pytest.mark.parametrize("stat", ["r2_ij", "D2_ij", "D2_ij_unbiased"])
+def test_general_two_way(mode, stat, ts_10_samp_with_sites_fixture):
+    ts = ts_10_samp_with_sites_fixture
+    general_func = getattr(GeneralStatFuncs, stat)
+    norm_f = GeneralStatNormFuncs.choose(stat, mode, ts)
+    sample_sets = [ts.samples()[0:5], ts.samples()[5:10]]
+    ldg = ts.two_locus_count_stat(sample_sets, general_func, 1, norm_f=norm_f, mode=mode)
+    ld = ts.ld_matrix(
+        sample_sets=sample_sets,
+        stat=stat.replace("_ij", ""),
+        indexes=[(0, 1)],
+        mode=mode,
+    )
+    np.testing.assert_array_almost_equal(ldg, ld)
+
+
+# NB: multiallelic testing only needed for sites. branches are biallelic.
+
+
+@pytest.mark.parametrize("stat", SUMMARY_FUNCS.keys())
+def test_general_one_way_multiallelic(stat, ts_multiallelic_fixture):
+    ts = ts_multiallelic_fixture
+    general_func = getattr(GeneralStatFuncs, stat)
+    norm_f = GeneralStatNormFuncs.choose(stat, "site", ts)
+    polarised = POLARIZATION[SUMMARY_FUNCS[stat]]
+    ldg = ts.two_locus_count_stat(
+        [ts.samples()], general_func, 1, norm_f=norm_f, polarised=polarised
+    )
+    ld = ts.ld_matrix(stat=stat)
+    # ld_matrix drops dims, expand for comparison
+    np.testing.assert_array_almost_equal(ldg, np.expand_dims(ld, 0))
+
+
+@pytest.mark.parametrize("stat", SUMMARY_FUNCS.keys())
+def test_general_one_way_multiallelic_multi_sample_set(stat, ts_multiallelic_fixture):
+    ts = ts_multiallelic_fixture
+    general_func = getattr(GeneralStatFuncs, stat)
+    norm_f = GeneralStatNormFuncs.choose(stat, "site", ts)
+    polarised = POLARIZATION[SUMMARY_FUNCS[stat]]
+    sample_sets = [ts.samples(), ts.samples()]
+    ldg = ts.two_locus_count_stat(
+        sample_sets, general_func, 2, norm_f=norm_f, polarised=polarised
+    )
+    ld = ts.ld_matrix(stat=stat, sample_sets=sample_sets)
+    np.testing.assert_array_almost_equal(ldg, ld)
+
+
+@pytest.mark.parametrize("stat", ["r2_ij", "D2_ij", "D2_ij_unbiased"])
+def test_general_two_way_multiallelic(stat, ts_multiallelic_fixture):
+    ts = ts_multiallelic_fixture
+    general_func = getattr(GeneralStatFuncs, stat)
+    norm_f = GeneralStatNormFuncs.choose(stat, "site", ts)
+    sample_sets = [ts.samples(), ts.samples()]
+    ldg = ts.two_locus_count_stat(sample_sets, general_func, 1, norm_f=norm_f)
+    ld = ts.ld_matrix(
+        stat=stat.replace("_ij", ""), indexes=(0, 1), sample_sets=sample_sets
+    )
+    # ld_matrix drops dims, expand for comparison
+    np.testing.assert_array_almost_equal(ldg, np.expand_dims(ld, 0))
+
+
+@pytest.mark.parametrize("mode", ["site", "branch"])
+def test_general_multi_outputs(mode):
+    ts = msprime.sim_mutations(
+        msprime.sim_ancestry(
+            4, recombination_rate=0.1, sequence_length=35, random_seed=123
+        ),
+        rate=0.1,
+        random_seed=123,
+    )
+    assert ts.num_samples == 8, "8 samples are required"
+    assert max({len(s.mutations) for s in ts.sites()}) > 2, (
+        "At least one multiallelic site required"
+    )
+    A = ts.samples()[0:4]
+    B = ts.samples()[4:]
+
+    norm_f = GeneralStatNormFuncs.choose("D2_unbiased", mode, ts)
+    general_func = GeneralStatFuncs.D2_ii_ij_jj_unbiased
+    ldg = ts.two_locus_count_stat([A, B], general_func, 3, mode=mode, norm_f=norm_f)
+    ld = ts.ld_matrix(
+        [A, B], stat="D2_unbiased", indexes=[(0, 0), (0, 1), (1, 1)], mode=mode
+    )
+    np.testing.assert_array_almost_equal(ldg, ld)
